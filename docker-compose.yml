@@ -9,12 +9,31 @@ services:
       - ./be/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/ecomm
+      - WHISPER_URL=http://whisper:9000
     depends_on:
       db:
+        condition: service_healthy
+      whisper:
         condition: service_healthy
     volumes:
       - ./be:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    ports:
+      - "9000:9000"
+    environment:
+      - ASR_MODEL=base        # tiny | base | small | medium | large
+      - ASR_ENGINE=openai_whisper
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/docs > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s       # model download/load takes time
+    volumes:
+      - whisper_models:/root/.cache/whisper   # cache model across restarts
 
   db:
     image: pgvector/pgvector:pg16
@@ -25,6 +44,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ecomm
     volumes:
+      - ./be:/app
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -34,3 +54,4 @@ services:
 
 volumes:
   pgdata:
+  whisper_models:
