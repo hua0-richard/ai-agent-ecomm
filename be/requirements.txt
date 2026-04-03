@@ -1,0 +1,12 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+langchain==0.3.14
+langchain-openai==0.3.0
+openai==1.58.1
+psycopg2-binary==2.9.10
+pgvector==0.3.6
+transformers==4.47.1
+torch==2.5.1+cpu
+Pillow==11.1.0
+python-dotenv==1.0.1
+httpx==0.28.1
