@@ -1,16 +1,45 @@
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, field_validator
 
 from retrievers.hybrid import build_hybrid_retriever
 
+# Stores the last product result list so the streaming handler can emit it as SSE.
+# Simple global — safe for single-user/dev. Replace with per-request state for multi-user prod.
+last_products: list[dict] = []
 
-@tool
-def product_search_tool(query: str) -> str:
-    """Search the Steam game catalog by description, genre, mood, or gameplay style. Returns the most relevant games ranked by relevance."""
-    retriever = build_hybrid_retriever()
-    docs = retriever.invoke(query)
-    if not docs:
-        return "No matching products found."
-    return "\n".join(
-        f"- {d.metadata['name']} (${d.metadata['price']:.2f}): {d.metadata.get('description', '')}"
-        for d in docs
+
+class _Input(BaseModel):
+    query: str
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def coerce_query(cls, v: object) -> str:
+        if isinstance(v, dict):
+            return str(v.get("value") or v.get("query") or next(iter(v.values()), ""))
+        return str(v)
+
+
+class ProductSearchTool(BaseTool):
+    name: str = "product_search_tool"
+    description: str = (
+        "Search the Steam game catalog by description, genre, mood, or gameplay style. "
+        "Returns the most relevant games ranked by relevance."
     )
+    args_schema: type[BaseModel] = _Input
+
+    def _run(self, query: str) -> str:
+        global last_products
+        retriever = build_hybrid_retriever()
+        docs = retriever.invoke(query)
+        if not docs:
+            last_products = []
+            return "No matching games found."
+
+        last_products = [doc.metadata for doc in docs]
+        return "\n".join(
+            f"- {d['name']} (${d['price']:.2f}): {d.get('description', '')}"
+            for d in last_products
+        )
+
+
+product_search_tool = ProductSearchTool()

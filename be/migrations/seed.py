@@ -28,7 +28,7 @@ TEXT_MODEL_NAME = "all-MiniLM-L6-v2"
 CLIP_BATCH_PAUSE = 0.05          # small pause between CLIP requests to avoid overwhelming the service
 IMAGE_DOWNLOAD_TIMEOUT = 10.0
 
-# Columns to keep from the raw dataset
+# Columns to keep from the raw dataset (Title Case — canonical names used throughout)
 RAW_COLUMNS = [
     "AppID", "Name", "Release date", "Estimated owners", "Peak CCU",
     "Price", "Short description", "Detailed description", "Header image",
@@ -36,6 +36,35 @@ RAW_COLUMNS = [
     "Screenshots", "Metacritic score", "Positive", "Negative",
     "Recommendations", "Average playtime forever", "Windows", "Mac", "Linux",
 ]
+
+# Map snake_case variants (new dataset schema) → Title Case (canonical)
+_COLUMN_ALIASES: dict[str, str] = {
+    "appID": "AppID",
+    "app_id": "AppID",
+    "name": "Name",
+    "release_date": "Release date",
+    "estimated_owners": "Estimated owners",
+    "peak_ccu": "Peak CCU",
+    "price": "Price",
+    "short_description": "Short description",
+    "detailed_description": "Detailed description",
+    "header_image": "Header image",
+    "website": "Website",
+    "developers": "Developers",
+    "publishers": "Publishers",
+    "categories": "Categories",
+    "genres": "Genres",
+    "tags": "Tags",
+    "screenshots": "Screenshots",
+    "metacritic_score": "Metacritic score",
+    "positive": "Positive",
+    "negative": "Negative",
+    "recommendations": "Recommendations",
+    "average_playtime_forever": "Average playtime forever",
+    "windows": "Windows",
+    "mac": "Mac",
+    "linux": "Linux",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -90,10 +119,23 @@ def clip_image_embedding(image_bytes: bytes) -> list[float] | None:
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
+PARQUET_CACHE = "/tmp/steam_games.parquet"
+
+
 def load_dataset() -> pd.DataFrame:
-    print("Downloading dataset from HuggingFace...")
-    df = pd.read_parquet(DATASET_URL)
+    if os.path.exists(PARQUET_CACHE):
+        print("Loading dataset from cache...")
+        df = pd.read_parquet(PARQUET_CACHE)
+    else:
+        print("Downloading dataset from HuggingFace...")
+        df = pd.read_parquet(DATASET_URL)
+        df.to_parquet(PARQUET_CACHE)
+        print("  Cached to", PARQUET_CACHE)
     print(f"  Total rows: {len(df)}")
+    print(f"  Columns: {list(df.columns)}")
+
+    # Normalise snake_case column names → Title Case
+    df = df.rename(columns=_COLUMN_ALIASES)
 
     # Parse popularity and sort
     df["_owner_lb"] = df["Estimated owners"].apply(parse_owner_lower_bound)
@@ -276,8 +318,11 @@ def generate_image_embeddings_and_insert(conn, df: pd.DataFrame, app_id_map: dic
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def main():
+def main(limit: int | None = None):
     df = load_dataset()
+    if limit:
+        df = df.head(limit)
+        print(f"Limiting to top {limit} games")
 
     conn = get_db()
     try:
@@ -292,4 +337,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seed the Steam games database.")
+    parser.add_argument("--limit", type=int, default=None, help="Only seed the top N games (default: all 5000)")
+    args = parser.parse_args()
+
+    main(limit=args.limit)

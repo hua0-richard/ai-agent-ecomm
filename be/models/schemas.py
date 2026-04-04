@@ -16,6 +16,7 @@ class ProductResult(BaseModel):
     description: str | None
     price: float
     image_url: str | None
+    screenshots: str | None = None
     similarity: float | None = None
 
 

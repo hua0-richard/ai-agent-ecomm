@@ -9,7 +9,7 @@ from transformers import CLIPModel, CLIPProcessor
 
 app = FastAPI(title="CLIP Embedding Service")
 
-MODEL_NAME = os.getenv("CLIP_MODEL_NAME", "wkcn/TinyCLIP-ViT-61M-32-Text-19M-v2")
+MODEL_NAME = os.getenv("CLIP_MODEL_NAME", "wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M")
 
 @lru_cache(maxsize=1)
 def _load_model():

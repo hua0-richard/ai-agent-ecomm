@@ -1,21 +1,39 @@
-# AI Agent E Commerce Store
+# AI Agent E-Commerce — Steam Edition
 
-Amazon Rufus but for Steam
+Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers discover games from the Steam catalog using natural language, image search, and voice input.
+
+## Features
+
+- **Chat agent** — conversational game recommendations with session memory and streaming responses
+- **Text search** — hybrid BM25 + vector search with cross-encoder reranking
+- **Image search** — upload a screenshot or artwork to find visually similar games (CLIP)
+- **Voice input** — speak your query using local Whisper transcription
+- **Chain-of-thought** — collapsible reasoning panel showing tool calls and agent steps
 
 ## Architecture
 
 | Service | Port | Description |
 |---------|------|-------------|
-| **fe** | 5173 | React + Vite frontend |
+| **fe** | 5173 | React + Vite + TypeScript frontend |
 | **api** | 8000 | FastAPI backend (chat, search, voice) |
-| **clip-service** | 8001 | CLIP image/text embedding service |
-| **whisper** | 9000 | OpenAI Whisper speech-to-text |
+| **clip-service** | 8001 | TinyCLIP image/text embedding service |
+| **whisper** | 9000 | Whisper ASR speech-to-text (tiny.en) |
 | **db** | 5432 | PostgreSQL 16 + pgvector |
+
+**Search pipeline:**
+- Text queries use BM25 (keyword) + sentence-transformer vector search fused via RRF, then reranked by a cross-encoder to top 3
+- Image queries use TinyCLIP to embed the uploaded image and search the `image_embedding` column
+- The chat agent uses LangChain tool calling with session memory, streaming via SSE
+
+**LLM:**
+- Dev: Ollama (local) — defaults to `qwen2.5:7b`
+- Prod: OpenRouter — defaults to `anthropic/claude-3.5-sonnet`
 
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- An OpenAI API key
+- [Ollama](https://ollama.com) installed and running locally (dev)
+- An [OpenRouter](https://openrouter.ai) API key (prod)
 
 ## Setup
 
@@ -26,68 +44,78 @@ Amazon Rufus but for Steam
    cd ai-agent-ecomm
    ```
 
-2. **Configure environment variables**
+2. **Pull the Ollama model** (dev only)
+
+   ```bash
+   ollama pull qwen2.5:7b
+   ```
+
+3. **Configure environment variables**
 
    ```bash
    cp be/.env.example be/.env
    ```
 
-   Edit `be/.env` and add your OpenAI API key:
+   For production, add your OpenRouter key to `be/.env`:
 
    ```
-   OPENAI_API_KEY=sk-your-key-here
+   OPENROUTER_API_KEY=sk-or-your-key-here
    ```
 
-3. **Start all services**
+4. **Start all services**
 
    ```bash
-   docker compose -f docker-compose.dev.yml up --build
+   docker compose -f docker-compose.dev.yml up --build -d
    ```
 
-   Wait for all health checks to pass. The clip-service takes ~60s on first start to download the model.
-
-4. **Seed the database**
-
-   In a separate terminal, run the seed script to load the top 5000 Steam games:
+   Wait for all health checks to pass. The clip-service takes ~60s on first start to download the model. Check status with:
 
    ```bash
-   docker compose -f docker-compose.dev.yml exec api python -m migrations.seed
+   docker compose -f docker-compose.dev.yml ps
+   ```
+
+5. **Seed the database**
+
+   ```bash
+   docker compose -f docker-compose.dev.yml exec api python -m migrations.seed --limit 200
    ```
 
    This will:
-   - Download the Steam games dataset from HuggingFace
-   - Insert raw game data into the `games` table
-   - Generate sentence embeddings (name + description) using `all-MiniLM-L6-v2`
-   - Generate CLIP image embeddings via the clip-service
+   - Download the Steam games dataset from HuggingFace (cached to `/tmp/steam_games.parquet`)
+   - Insert the top N games by estimated owners into the `games` table
+   - Generate sentence embeddings using `all-MiniLM-L6-v2`
+   - Download header images and generate CLIP embeddings via the clip-service
    - Insert everything into the `products` table
 
-   The text embeddings are batched and fast. Image embeddings take longer (~5000 HTTP requests with image downloads).
+   Use `--limit N` to seed fewer games for faster startup. Omit for the full 5000.
 
-5. **Open the app**
+6. **Open the app**
 
    Visit [http://localhost:5173](http://localhost:5173)
 
 ## Useful Commands
 
 ```bash
-# Start services (detached)
-docker compose -f docker-compose.dev.yml up --build -d
+# Rebuild and restart a single service
+docker compose -f docker-compose.dev.yml up -d --build api
 
 # View logs
-docker compose -f docker-compose.dev.yml logs -f
-
-# View logs for a single service
 docker compose -f docker-compose.dev.yml logs -f api
+
+# Re-seed after wiping products
+docker compose -f docker-compose.dev.yml exec db psql -U postgres ecomm -c "TRUNCATE products;"
+docker compose -f docker-compose.dev.yml exec api python -m migrations.seed --limit 200
+
+# Check embedding coverage
+docker compose -f docker-compose.dev.yml exec db psql -U postgres ecomm -c \
+  "SELECT COUNT(*) total, COUNT(image_embedding) with_image, COUNT(text_embedding) with_text FROM products;"
+
+# Connect to the database
+docker compose -f docker-compose.dev.yml exec db psql -U postgres -d ecomm
 
 # Stop services
 docker compose -f docker-compose.dev.yml down
 
-# Reset database (deletes all data)
+# Reset everything (deletes all data and volumes)
 docker compose -f docker-compose.dev.yml down -v
-
-# Run migrations only (no seed)
-docker compose -f docker-compose.dev.yml exec api python -m migrations.migrate
-
-# Connect to the database
-docker compose -f docker-compose.dev.yml exec db psql -U postgres -d ecomm
 ```

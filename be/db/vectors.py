@@ -66,11 +66,13 @@ def similarity_search_sync(embedding: list[float], limit: int = 10) -> list[dict
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT id, name, description, price, image_url,
-                   1 - (image_embedding <=> %s::vector) AS similarity
-            FROM products
-            WHERE image_embedding IS NOT NULL
-            ORDER BY image_embedding <=> %s::vector
+            SELECT p.id, p.name, p.description, p.price, p.image_url,
+                   g.screenshots,
+                   1 - (p.image_embedding <=> %s::vector) AS similarity
+            FROM products p
+            JOIN games g ON g.id = p.game_id
+            WHERE p.image_embedding IS NOT NULL
+            ORDER BY p.image_embedding <=> %s::vector
             LIMIT %s
             """,
             (embedding, embedding, limit),
@@ -80,7 +82,11 @@ def similarity_search_sync(embedding: list[float], limit: int = 10) -> list[dict
 
 def get_all_products() -> list[dict]:
     with get_cursor() as cur:
-        cur.execute("SELECT id, name, description, price, image_url FROM products")
+        cur.execute("""
+            SELECT p.id, p.name, p.description, p.price, p.image_url, g.screenshots
+            FROM products p
+            JOIN games g ON g.id = p.game_id
+        """)
         return [dict(row) for row in cur.fetchall()]
 
 
@@ -89,11 +95,13 @@ def text_similarity_search(embedding: list[float], limit: int = 10) -> list[dict
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT id, name, description, price, image_url,
-                   1 - (text_embedding <=> %s::vector) AS similarity
-            FROM products
-            WHERE text_embedding IS NOT NULL
-            ORDER BY text_embedding <=> %s::vector
+            SELECT p.id, p.name, p.description, p.price, p.image_url,
+                   g.screenshots,
+                   1 - (p.text_embedding <=> %s::vector) AS similarity
+            FROM products p
+            JOIN games g ON g.id = p.game_id
+            WHERE p.text_embedding IS NOT NULL
+            ORDER BY p.text_embedding <=> %s::vector
             LIMIT %s
             """,
             (embedding, embedding, limit),
