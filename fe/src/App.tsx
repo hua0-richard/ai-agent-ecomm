@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, Send } from "lucide-react";
+import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, Send, ChevronDown, Wrench } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
 
@@ -29,7 +31,30 @@ interface Product {
   description: string;
   price: number;
   image_url?: string;
+  screenshots?: string;
   similarity?: number;
+}
+
+function parseScreenshots(raw?: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((s: { path_thumbnail?: string; path_full?: string }) => s.path_thumbnail || s.path_full)
+        .filter(Boolean) as string[];
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+interface ThoughtStep {
+  type: "thought" | "tool_call" | "tool_result";
+  content?: string;
+  tool?: string;
+  input?: string;
 }
 
 interface ChatMessage {
@@ -37,7 +62,10 @@ interface ChatMessage {
   sender: "user" | "agent";
   content: string;
   isImage?: boolean;
+  imageDataUrl?: string;
   status?: "searching" | "streaming" | "ready" | "error";
+  thoughts?: ThoughtStep[];
+  results?: Product[];
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -46,12 +74,12 @@ function App() {
   const [view, setView] = useState<"landing" | "chat">("landing");
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [results, setResults] = useState<Product[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [lastQuery, setLastQuery] = useState("");
   const [promptSet, setPromptSet] = useState(0);
   const [voiceActive, setVoiceActive] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [expandedThoughts, setExpandedThoughts] = useState<Set<string>>(new Set());
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -91,9 +119,10 @@ function App() {
       const userMsgId = Date.now().toString();
       const agentMsgId = (Date.now() + 1).toString();
       const currentQuery = `Image: ${file.name}`;
-      
+      const imageDataUrl = URL.createObjectURL(file);
+
       // 1. Add user message and transition view
-      setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery, isImage: true }]);
+      setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery, isImage: true, imageDataUrl }]);
       setLastQuery(currentQuery);
       setView("chat");
       setIsSearching(true);
@@ -108,7 +137,7 @@ function App() {
         await new Promise(r => setTimeout(r, 500));
         setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "Thinking...", status: "searching" }]);
 
-        const response = await fetch("http://localhost:8000/api/search/image", {
+        const response = await fetch(`${API_URL}/api/search/image`, {
           method: "POST",
           body: formData,
         });
@@ -118,10 +147,9 @@ function App() {
         await minDelay;
         
         // 3. Update the agent message with real results
-        setResults(searchResults);
-        setMessages(prev => prev.map(m => 
-          m.id === agentMsgId 
-            ? { ...m, content: "I've analyzed your image and found these matching games from the Steam library.", status: "ready" }
+        setMessages(prev => prev.map(m =>
+          m.id === agentMsgId
+            ? { ...m, content: "I've analyzed your image and found these matching games from the Steam library.", status: "ready", results: searchResults }
             : m
         ));
       } catch (err) {
@@ -149,7 +177,6 @@ function App() {
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setView("chat");
     setIsSearching(true);
-    setResults([]);
 
     await new Promise(r => setTimeout(r, 300));
     setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching" }]);
@@ -179,14 +206,44 @@ function App() {
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const payload = JSON.parse(line.slice(6));
-          if (payload.done) {
+          if (payload.type === "done") {
             setMessages(prev => prev.map(m =>
               m.id === agentMsgId ? { ...m, status: "ready" } : m
             ));
-          } else if (payload.token) {
-            fullContent += payload.token;
+          } else if (payload.type === "token") {
+            fullContent += payload.content;
             setMessages(prev => prev.map(m =>
               m.id === agentMsgId ? { ...m, content: fullContent, status: "streaming" } : m
+            ));
+          } else if (payload.type === "thought") {
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId
+                ? { ...m, thoughts: [...(m.thoughts ?? []), { type: "thought", content: payload.content }] }
+                : m
+            ));
+          } else if (payload.type === "tool_call") {
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId
+                ? { ...m, thoughts: [...(m.thoughts ?? []), { type: "tool_call", tool: payload.tool, input: payload.input }] }
+                : m
+            ));
+          } else if (payload.type === "tool_result") {
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId
+                ? { ...m, thoughts: [...(m.thoughts ?? []), { type: "tool_result", content: payload.content }] }
+                : m
+            ));
+          } else if (payload.type === "products") {
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId
+                ? { ...m, results: payload.products }
+                : m
+            ));
+          } else if (payload.type === "error") {
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId
+                ? { ...m, content: "Something went wrong. Please try again.", status: "error" }
+                : m
             ));
           }
         }
@@ -319,7 +376,7 @@ function App() {
                     <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.454 1.012H7.54zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z" />
                   </svg>
                   <div className="flex items-center gap-2 text-white/80">
-                    <span className="text-[2rem] font-semibold tracking-[0.05em] uppercase leading-none">AGENT</span>
+                    <span className="text-[2rem] font-semibold tracking-[0.05em] uppercase leading-none">GABEN</span>
                     <span className="h-2.5 w-2.5 rounded-full bg-[#6abf47]/70 animate-[pulse_3s_ease-in-out_infinite] shadow-[0_0_10px_2px_rgba(106,191,71,0.4)]" />
                   </div>
                 </div>
@@ -362,16 +419,76 @@ function App() {
                         )}
                         <span className="text-[10px] font-bold text-white/20 tracking-widest uppercase mr-1">User</span>
                         <div className={`${glass} bg-white/[0.08] px-4 py-2.5 rounded-2xl border-white/10 shadow-xl`}>
+                          {msg.imageDataUrl && (
+                            <img
+                              src={msg.imageDataUrl}
+                              alt="Uploaded"
+                              className="max-w-[240px] max-h-[180px] rounded-lg object-cover mb-2"
+                            />
+                          )}
                           <p className="text-white/90 text-sm font-medium text-left leading-relaxed">{msg.content}</p>
                         </div>
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1.5 w-full">
                         <div className="flex items-center gap-1.5 ml-1">
-                          <span className="text-[10px] font-bold text-steam-blue/40 tracking-widest uppercase">Agent</span>
+                          <span className="text-[10px] font-bold text-steam-blue/40 tracking-widest uppercase">Gaben</span>
                           <span className="h-1.5 w-1.5 rounded-full bg-[#6abf47]/50 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_6px_1px_rgba(106,191,71,0.3)]" />
                         </div>
-                        <div className={`${glass} bg-steam-blue/20 px-4 py-3 rounded-2xl border-steam-blue/30 shadow-[0_0_30px_rgba(26,159,255,0.1)]`}>
+
+                        {/* Collapsible chain-of-thought */}
+                        {msg.thoughts && msg.thoughts.length > 0 && (
+                          <div className="w-full">
+                            <button
+                              onClick={() => setExpandedThoughts(prev => {
+                                const next = new Set(prev);
+                                next.has(msg.id) ? next.delete(msg.id) : next.add(msg.id);
+                                return next;
+                              })}
+                              className="flex items-center gap-1.5 text-[11px] text-white/25 hover:text-white/50 transition-colors mb-1.5 cursor-pointer"
+                            >
+                              <motion.div animate={{ rotate: expandedThoughts.has(msg.id) ? 0 : -90 }} transition={{ duration: 0.2 }}>
+                                <ChevronDown className="h-3 w-3" />
+                              </motion.div>
+                              View reasoning
+                            </button>
+                            <AnimatePresence>
+                              {expandedThoughts.has(msg.id) && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="overflow-hidden mb-2"
+                                >
+                                  <div className="border border-white/5 rounded-xl p-3 space-y-2 bg-white/[0.02]">
+                                    {msg.thoughts.map((step, i) => (
+                                      <div key={i} className="text-[11px] leading-relaxed">
+                                        {step.type === "thought" && (
+                                          <p className="text-white/30 font-mono whitespace-pre-wrap">{step.content}</p>
+                                        )}
+                                        {step.type === "tool_call" && (
+                                          <div className="flex items-start gap-2">
+                                            <Wrench className="h-3 w-3 text-steam-blue/50 mt-0.5 shrink-0" />
+                                            <div>
+                                              <span className="text-steam-blue/60 font-medium">{step.tool}</span>
+                                              {step.input && <p className="text-white/25 mt-0.5">"{step.input}"</p>}
+                                            </div>
+                                          </div>
+                                        )}
+                                        {step.type === "tool_result" && (
+                                          <p className="text-white/20 font-mono line-clamp-3">{step.content}</p>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        )}
+
+                        <div className={`${glass} bg-steam-blue/20 px-4 py-3 rounded-2xl border-steam-blue/30 shadow-[0_0_30px_rgba(26,159,255,0.1)] w-full`}>
                           {msg.status === 'searching' ? (
                             <div className="flex items-center justify-center h-5 px-1">
                               <motion.div
@@ -386,46 +503,74 @@ function App() {
                               />
                             </div>
                           ) : (
-                            <p className="text-white text-sm leading-relaxed font-medium text-left">
-                              {msg.content}
+                            <div className="text-sm leading-relaxed text-left [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-4 [&_ol]:my-1 [&_ol]:pl-4 [&_li]:my-0.5 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white [&_strong]:font-semibold [&_code]:text-steam-blue [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/90 [&_h1]:font-semibold [&_h2]:font-semibold [&_a]:text-steam-blue [&_a]:underline">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                               {msg.status === 'streaming' && (
+                                <div className="flex justify-center mt-6 mb-2">
                                 <motion.span
-                                  className="inline-block w-0.5 h-3.5 ml-0.5 bg-white/60 align-middle"
-                                  animate={{ opacity: [1, 0] }}
-                                  transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut" }}
+                                  className="block w-1.5 h-1.5 rounded-full"
+                                  style={{ backgroundColor: "rgba(106,191,71,0.8)" }}
+                                  animate={{
+                                    opacity: [0.4, 1, 0.4],
+                                    scale: [0.7, 1.4, 0.7],
+                                    boxShadow: [
+                                      "0 0 4px 1px rgba(106,191,71,0.2)",
+                                      "0 0 10px 3px rgba(106,191,71,0.6)",
+                                      "0 0 4px 1px rgba(106,191,71,0.2)",
+                                    ],
+                                  }}
+                                  transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
                                 />
+                                </div>
                               )}
-                            </p>
+                            </div>
                           )}
                         </div>
                         
                         {/* Results grid linked to agent message */}
-                        {msg.status === 'ready' && index === messages.length - 1 && results.length > 0 && (
+                        {msg.status === 'ready' && msg.results && msg.results.length > 0 && (
                           <div className="grid grid-cols-1 gap-4 mt-4 w-full">
-                            {results.map((product, i) => (
+                            {msg.results.map((product, i) => (
                               <motion.div
                                 layout
                                 key={product.id}
                                 initial={{ opacity: 0, y: 15 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: 0.1 + i * 0.04 }}
-                                className={`${glass} p-4 rounded-xl border border-white/5 flex gap-4 hover:border-white/10 transition-colors`}
+                                className={`${glass} p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors flex flex-col gap-3`}
                               >
-                                {product.image_url && (
-                                  <img src={product.image_url} alt={product.name} className="w-20 h-20 flex-shrink-0 object-cover rounded-lg bg-white/5" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <h3 className="text-white font-medium truncate text-sm">{product.name}</h3>
-                                  <p className="text-white/40 text-xs line-clamp-2 mt-1">{product.description}</p>
-                                  <div className="flex items-center justify-between mt-2">
-                                    <span className="text-steam-blue font-semibold text-sm">${product.price}</span>
-                                    {product.similarity && (
-                                      <span className="text-[10px] text-white/20 px-1.5 py-0.5 rounded-full border border-white/5">
-                                        {Math.round(product.similarity * 100)}% match
-                                      </span>
-                                    )}
+                                <div className="flex gap-4">
+                                  {product.image_url && (
+                                    <img src={product.image_url} alt={product.name} className="w-20 h-20 flex-shrink-0 object-cover rounded-lg bg-white/5" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="text-white font-medium truncate text-sm">{product.name}</h3>
+                                    <p className="text-white/40 text-xs line-clamp-2 mt-1">{product.description}</p>
+                                    <div className="flex items-center justify-between mt-2">
+                                      <span className="text-steam-blue font-semibold text-sm">${product.price}</span>
+                                      {product.similarity && (
+                                        <span className="text-[10px] text-white/20 px-1.5 py-0.5 rounded-full border border-white/5">
+                                          {Math.round(product.similarity * 100)}% match
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
+                                {(() => {
+                                  const shots = parseScreenshots(product.screenshots).slice(0, 3);
+                                  return shots.length > 0 ? (
+                                    <div className="flex gap-2 overflow-x-auto">
+                                      {shots.map((url, si) => (
+                                        <img
+                                          key={si}
+                                          src={url}
+                                          alt={`${product.name} screenshot ${si + 1}`}
+                                          className="h-20 w-auto flex-shrink-0 rounded-md object-cover bg-white/5"
+                                        />
+                                      ))}
+                                    </div>
+                                  ) : null;
+                                })()}
                               </motion.div>
                             ))}
                           </div>
