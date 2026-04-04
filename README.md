@@ -7,7 +7,7 @@ Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers dis
 - **Chat agent** — conversational game recommendations with session memory and streaming responses, always in English
 - **Text search** — hybrid BM25 + vector search with cross-encoder reranking
 - **Image search** — upload a screenshot or artwork to find visually similar games (CLIP)
-- **Voice input** — speak your query using local Whisper transcription
+- **Voice input** — speak your query using Whisper transcription (local in dev, OpenAI API in prod)
 - **Chain-of-thought** — collapsible reasoning panel showing tool calls and agent steps
 - **Game screenshots** — product cards show header image and screenshot thumbnails pulled from the Steam catalog
 
