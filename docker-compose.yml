@@ -9,12 +9,9 @@ services:
       - ./be/.env
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/ecomm
-      - WHISPER_URL=http://whisper:9000
       - CLIP_SERVICE_URL=http://clip-service:8001
     depends_on:
       db:
-        condition: service_healthy
-      whisper:
         condition: service_healthy
       clip-service:
         condition: service_healthy
@@ -39,23 +36,7 @@ services:
     volumes:
       - clip_models:/root/.cache/huggingface
 
-  whisper:
-    image: onerahmet/openai-whisper-asr-webservice:latest
-    ports:
-      - "9000:9000"
-    environment:
-      - ASR_MODEL=base
-      - ASR_ENGINE=openai_whisper
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/docs > /dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    volumes:
-      - whisper_models:/root/.cache/whisper
-
-  db:
+db:
     image: pgvector/pgvector:pg16
     ports:
       - "5432:5432"
@@ -74,5 +55,4 @@ services:
 
 volumes:
   pgdata:
-  whisper_models:
   clip_models:

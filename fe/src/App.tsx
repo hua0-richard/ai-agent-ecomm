@@ -75,7 +75,6 @@ function App() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [lastQuery, setLastQuery] = useState("");
   const [promptSet, setPromptSet] = useState(0);
   const [voiceActive, setVoiceActive] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -135,7 +134,7 @@ function App() {
       // 1. Add user message and transition view
       userScrolledUp.current = false;
       setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery, isImage: true, imageDataUrl }]);
-      setLastQuery(currentQuery);
+
       setView("chat");
       setIsSearching(true);
       
