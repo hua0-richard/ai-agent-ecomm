@@ -82,9 +82,11 @@ function App() {
   const [expandedThoughts, setExpandedThoughts] = useState<Set<string>>(new Set());
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const userScrolledUp = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   
@@ -93,10 +95,19 @@ function App() {
 
   const prompts = EXAMPLE_PROMPTS[promptSet % EXAMPLE_PROMPTS.length];
 
-  // Auto-scroll to bottom of chat
+  // Auto-scroll to bottom unless user has scrolled up
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!userScrolledUp.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, isSearching]);
+
+  function handleChatScroll() {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    userScrolledUp.current = distanceFromBottom > 100;
+  }
 
   function scrollCategories(dir: number) {
     scrollRef.current?.scrollBy({ left: dir * 200, behavior: "smooth" });
@@ -122,6 +133,7 @@ function App() {
       const imageDataUrl = URL.createObjectURL(file);
 
       // 1. Add user message and transition view
+      userScrolledUp.current = false;
       setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery, isImage: true, imageDataUrl }]);
       setLastQuery(currentQuery);
       setView("chat");
@@ -171,6 +183,7 @@ function App() {
     const userMsgId = Date.now().toString();
     const agentMsgId = (Date.now() + 1).toString();
 
+    userScrolledUp.current = false;
     setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery }]);
     setLastQuery(currentQuery);
     setQuery("");
@@ -391,7 +404,7 @@ function App() {
           </AnimatePresence>
 
           {/* Chat / Results history */}
-          <div className={`flex-1 overflow-y-auto no-scrollbar min-h-0 ${view === 'chat' ? 'mb-6 py-4' : ''}`}>
+          <div ref={chatScrollRef} onScroll={handleChatScroll} className={`flex-1 overflow-y-auto no-scrollbar min-h-0 ${view === 'chat' ? 'mb-6 py-4' : ''}`}>
             <div className="space-y-8 pb-4">
               {messages.map((msg, index) => (
                 <motion.div
