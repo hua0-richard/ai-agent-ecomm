@@ -23,7 +23,7 @@ services:
     environment:
       - CLIP_MODEL_NAME=wkcn/TinyCLIP-ViT-61M-32-Text-19M-v2
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8001/health > /dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
       interval: 30s
       timeout: 10s
       retries: 5
