@@ -1,6 +1,6 @@
 from db.connection import get_cursor
 
-EMBEDDING_DIM = 512  # CLIP ViT-B/32 output dimension
+EMBEDDING_DIM = 512  # TinyCLIP-ViT-61M output dimension
 
 
 def init_vector_store():

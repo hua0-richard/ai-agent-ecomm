@@ -1,33 +1,25 @@
-import io
 import os
-from functools import lru_cache
+import httpx
 
-import torch
-from PIL import Image
-from transformers import CLIPModel, CLIPProcessor
-
-MODEL_NAME = os.getenv("CLIP_MODEL_NAME", "openai/clip-vit-base-patch32")
-
-
-@lru_cache(maxsize=1)
-def _load_model():
-    model = CLIPModel.from_pretrained(MODEL_NAME)
-    processor = CLIPProcessor.from_pretrained(MODEL_NAME)
-    return model, processor
+CLIP_SERVICE_URL = os.getenv("CLIP_SERVICE_URL", "http://clip-service:8001")
 
 
 def get_text_embedding(text: str) -> list[float]:
-    model, processor = _load_model()
-    inputs = processor(text=[text], return_tensors="pt", padding=True, truncation=True)
-    with torch.no_grad():
-        embedding = model.get_text_features(**inputs)
-    return embedding[0].tolist()
+    with httpx.Client(timeout=60.0) as client:
+        response = client.get(
+            f"{CLIP_SERVICE_URL}/embedding/text",
+            params={"q": text}
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
 
 
 def get_image_embedding(image_bytes: bytes) -> list[float]:
-    model, processor = _load_model()
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    inputs = processor(images=image, return_tensors="pt")
-    with torch.no_grad():
-        embedding = model.get_image_features(**inputs)
-    return embedding[0].tolist()
+    with httpx.Client(timeout=60.0) as client:
+        files = {"file": ("image.jpg", image_bytes, "image/jpeg")}
+        response = client.post(
+            f"{CLIP_SERVICE_URL}/embedding/image",
+            files=files
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
