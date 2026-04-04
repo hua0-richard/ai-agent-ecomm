@@ -78,6 +78,12 @@ def similarity_search_sync(embedding: list[float], limit: int = 10) -> list[dict
         return [dict(row) for row in cur.fetchall()]
 
 
+def get_all_products() -> list[dict]:
+    with get_cursor() as cur:
+        cur.execute("SELECT id, name, description, price, image_url FROM products")
+        return [dict(row) for row in cur.fetchall()]
+
+
 def text_similarity_search(embedding: list[float], limit: int = 10) -> list[dict]:
     """Search products by text embedding (sentence-transformer)."""
     with get_cursor() as cur:

@@ -1,1 +1,38 @@
+# Environment
 .env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+.mypy_cache/
+.ruff_cache/
+
+# ML model caches
+*.onnx
+.cache/
+clip-service/.cache/
+
+# Node
+node_modules/
+fe/dist/
+fe/dist-ssr/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.sw?

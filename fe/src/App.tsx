@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, RefreshCw, Send } from "lucide-react";
+import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, Send } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 
 const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
@@ -348,7 +348,16 @@ function App() {
                       <div className="flex flex-col items-end gap-1.5 text-right w-full relative">
                         {index === messages.length - 1 && isSearching && (
                           <div className="absolute -left-8 top-1/2 -translate-y-1/2">
-                            <RefreshCw className="h-4 w-4 text-steam-blue animate-spin opacity-40" />
+                            <motion.div
+                              className="w-4 h-4 rounded-full"
+                              style={{
+                                background: "conic-gradient(from 0deg, transparent 0%, rgba(26,159,255,0.1) 20%, rgba(26,159,255,0.5) 60%, transparent 100%)",
+                                mask: "radial-gradient(circle, transparent 50%, black 52%)",
+                                WebkitMask: "radial-gradient(circle, transparent 50%, black 52%)",
+                              }}
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                            />
                           </div>
                         )}
                         <span className="text-[10px] font-bold text-white/20 tracking-widest uppercase mr-1">User</span>
@@ -364,23 +373,17 @@ function App() {
                         </div>
                         <div className={`${glass} bg-steam-blue/20 px-4 py-3 rounded-2xl border-steam-blue/30 shadow-[0_0_30px_rgba(26,159,255,0.1)]`}>
                           {msg.status === 'searching' ? (
-                            <div className="flex items-center gap-1.5 h-4 px-0.5">
-                              {[0, 1, 2].map((i) => (
-                                <motion.div
-                                  key={i}
-                                  className="w-1.25 h-1.25 rounded-full bg-white/40"
-                                  animate={{
-                                    opacity: [0.2, 0.5, 0.2],
-                                    y: [0, -2, 0]
-                                  }}
-                                  transition={{
-                                    duration: 1.4,
-                                    repeat: Infinity,
-                                    delay: i * 0.15,
-                                    ease: "easeInOut"
-                                  }}
-                                />
-                              ))}
+                            <div className="flex items-center justify-center h-5 px-1">
+                              <motion.div
+                                className="w-5 h-5 rounded-full"
+                                style={{
+                                  background: "conic-gradient(from 0deg, transparent 0%, rgba(26,159,255,0.08) 20%, rgba(26,159,255,0.7) 55%, rgba(160,220,255,0.9) 70%, transparent 100%)",
+                                  mask: "radial-gradient(circle, transparent 53%, black 55%)",
+                                  WebkitMask: "radial-gradient(circle, transparent 53%, black 55%)",
+                                }}
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                              />
                             </div>
                           ) : (
                             <p className="text-white text-sm leading-relaxed font-medium text-left">

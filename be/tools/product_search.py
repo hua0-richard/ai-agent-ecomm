@@ -1,17 +1,16 @@
 from langchain_core.tools import tool
 
-from embeddings.clip import get_text_embedding
-from db.vectors import similarity_search_sync
+from retrievers.hybrid import build_hybrid_retriever
 
 
 @tool
 def product_search_tool(query: str) -> str:
-    """Search for products by text description. Returns matching products ranked by relevance."""
-    embedding = get_text_embedding(query)
-    results = similarity_search_sync(embedding)
-    if not results:
+    """Search the Steam game catalog by description, genre, mood, or gameplay style. Returns the most relevant games ranked by relevance."""
+    retriever = build_hybrid_retriever()
+    docs = retriever.invoke(query)
+    if not docs:
         return "No matching products found."
     return "\n".join(
-        f"- {r['name']} (${r['price']:.2f}): {r['description']}"
-        for r in results
+        f"- {d.metadata['name']} (${d.metadata['price']:.2f}): {d.metadata.get('description', '')}"
+        for d in docs
     )
