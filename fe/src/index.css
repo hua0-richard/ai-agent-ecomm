@@ -165,15 +165,6 @@ body::before {
     0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* CLIP loading pulse */
-@keyframes clip-pulse {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 0.65; }
-}
-.clip-loading {
-  animation: clip-pulse 1.6s ease-in-out infinite;
-}
-
 /* Apple-style liquid glass CTA */
 .cta-frosted {
   border-radius: 16px;

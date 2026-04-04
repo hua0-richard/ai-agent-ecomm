@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, Plus, Mic, Image, RefreshCw, Send } from "lucide-react";
-import { useClip } from "./hooks/useClip";
+import { useState, useRef } from "react";
+import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, RefreshCw, Send } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
@@ -24,21 +23,28 @@ const EXAMPLE_PROMPTS = [
   ["Split-screen co-op adventures", "Atmospheric horror games", "Strategy games with mod support"],
 ];
 
+interface Product {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  image_url?: string;
+  similarity?: number;
+}
+
 function App() {
   const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Product[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [promptSet, setPromptSet] = useState(0);
   const [voiceActive, setVoiceActive] = useState(false);
+  
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const clipStatus = useClip();
-  const [clipPulse, setClipPulse] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [glowVisible, setGlowVisible] = useState(false);
-  useEffect(() => {
-    if (clipStatus !== "loading") return;
-    const t = setInterval(() => setClipPulse((p) => !p), 1400);
-    return () => clearInterval(t);
-  }, [clipStatus]);
 
   const prompts = EXAMPLE_PROMPTS[promptSet % EXAMPLE_PROMPTS.length];
 
@@ -51,6 +57,57 @@ function App() {
     const el = e.target;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }
+
+  function handleImageClick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setIsSearching(true);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch("http://localhost:8000/api/search/image", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        setResults(data.results || []);
+      } catch (err) {
+        console.error("Search failed:", err);
+      } finally {
+        setIsSearching(false);
+      }
+    }
+  }
+
+  /* 
+  async function handleSearch() {
+    if (!query.trim()) return;
+    setIsSearching(true);
+    try {
+      const response = await fetch(`http://localhost:8000/api/search/text?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      setResults(data.results || []);
+    } catch (err) {
+      console.error("Search failed:", err);
+    } finally {
+      setIsSearching(false);
+    }
+  }
+  */
+
+  function handleHelpClick() {
+    const helpPrompt = "What can you do?";
+    setQuery(helpPrompt);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + "px";
+    }
   }
 
   return (
@@ -135,26 +192,25 @@ function App() {
 
           <div className="flex items-center justify-between px-3 pb-3">
             <div className="flex items-center gap-1">
-              <button className="h-8 w-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-200 cursor-pointer">
-                <Plus className="h-4 w-4" />
+              <button 
+                onClick={handleHelpClick}
+                className="h-8 w-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
+              >
+                <HelpCircle className="h-4 w-4" />
               </button>
               <button
-                disabled={clipStatus !== "ready"}
-                title={clipStatus === "loading" ? "Visual search is warming up…" : clipStatus === "error" ? "Visual search unavailable" : undefined}
-                className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors duration-200 ${
-                  clipStatus === "ready"
-                    ? "text-white/30 hover:text-white/60 hover:bg-white/[0.06] cursor-pointer"
-                    : "cursor-not-allowed"
-                }`}
+                onClick={handleImageClick}
+                className="h-8 w-8 flex items-center justify-center rounded-lg text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
               >
-                <Image
-                  className="h-4 w-4"
-                  style={{
-                    opacity: clipStatus === "loading" ? (clipPulse ? 0.2 : 0.6) : undefined,
-                    transition: "opacity 0.6s ease-in-out",
-                  }}
-                />
+                <Image className="h-4 w-4" />
               </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                className="hidden"
+              />
               <button
                 onClick={() => setVoiceActive(!voiceActive)}
                 className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer ${
@@ -182,27 +238,51 @@ function App() {
           </div>
         </motion.div>
 
-        {/* CLIP status */}
+        {/* Results section */}
         <AnimatePresence>
-          {clipStatus === "loading" && (
+          {(isSearching || results.length > 0) && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5, ease }}
-              className="flex items-center justify-center gap-2 pt-3"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="mt-8 space-y-4"
             >
-              <motion.span
-                className="inline-block w-1 h-1 rounded-full bg-white/20"
-                animate={{ opacity: [0.2, 0.6, 0.2] }}
-                transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <span className="text-[11px] text-white/25 tracking-wide">Warming up visual search</span>
-              <motion.span
-                className="inline-block w-1 h-1 rounded-full bg-white/20"
-                animate={{ opacity: [0.2, 0.6, 0.2] }}
-                transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
-              />
+              {isSearching ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-6 w-6 text-steam-blue animate-spin" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {results.map((product) => (
+                    <motion.div
+                      key={product.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className={`${glass} p-4 rounded-xl border border-white/5 flex gap-4`}
+                    >
+                      {product.image_url && (
+                        <img 
+                          src={product.image_url} 
+                          alt={product.name}
+                          className="w-20 h-20 object-cover rounded-lg bg-white/5" 
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-white font-medium truncate">{product.name}</h3>
+                        <p className="text-white/40 text-xs line-clamp-2 mt-1">{product.description}</p>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-steam-blue font-semibold">${product.price}</span>
+                          {product.similarity && (
+                            <span className="text-[10px] text-white/20">
+                              {Math.round(product.similarity * 100)}% match
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -236,6 +316,7 @@ function App() {
 
         {/* Category pills */}
         <motion.div
+          layout
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2, ease }}
