@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Query
 
 from models.schemas import SearchResponse
 from embeddings.clip import get_text_embedding, get_image_embedding
-from db.vectors import similarity_search
+from db.vectors import similarity_search, similarity_search_text
 
 router = APIRouter()
 
@@ -10,7 +10,7 @@ router = APIRouter()
 @router.get("/text", response_model=SearchResponse)
 async def search_by_text(q: str = Query(..., min_length=1)):
     embedding = get_text_embedding(q)
-    results = await similarity_search(embedding)
+    results = await similarity_search_text(embedding)
     return SearchResponse(results=results)
 
 

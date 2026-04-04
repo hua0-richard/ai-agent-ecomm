@@ -8,3 +8,8 @@ pgvector==0.3.6
 Pillow==11.1.0
 python-dotenv==1.0.1
 httpx==0.28.1
+pandas==2.2.3
+pyarrow==18.1.0
+sentence-transformers==3.3.1
+huggingface_hub==0.27.1
+fsspec==2024.12.0

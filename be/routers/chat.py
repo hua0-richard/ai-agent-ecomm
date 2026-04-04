@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from models.schemas import ChatRequest, ChatResponse
 from tools.agent import get_agent_response
