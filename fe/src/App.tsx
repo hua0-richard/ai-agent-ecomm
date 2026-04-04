@@ -37,8 +37,10 @@ interface ChatMessage {
   sender: "user" | "agent";
   content: string;
   isImage?: boolean;
-  status?: "searching" | "ready" | "error";
+  status?: "searching" | "streaming" | "ready" | "error";
 }
+
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 function App() {
   const [view, setView] = useState<"landing" | "chat">("landing");
@@ -49,11 +51,14 @@ function App() {
   const [lastQuery, setLastQuery] = useState("");
   const [promptSet, setPromptSet] = useState(0);
   const [voiceActive, setVoiceActive] = useState(false);
-  
+  const [isTranscribing, setIsTranscribing] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [glowVisible, setGlowVisible] = useState(false);
@@ -133,49 +138,119 @@ function App() {
   }
 
   async function handleSearch() {
-    if (!query.trim()) return;
+    if (!query.trim() || isSearching) return;
     const currentQuery = query;
     const userMsgId = Date.now().toString();
     const agentMsgId = (Date.now() + 1).toString();
-    
-    // 1. Add user message and transition view
+
     setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery }]);
     setLastQuery(currentQuery);
     setQuery("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
-    
     setView("chat");
     setIsSearching(true);
-    
+    setResults([]);
+
+    await new Promise(r => setTimeout(r, 300));
+    setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching" }]);
+
     try {
-      const minDelay = new Promise((r) => setTimeout(r, 2000));
-      
-      // 2. Short delay before showing "Thinking..."
-      await new Promise(r => setTimeout(r, 500));
-      setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "Thinking...", status: "searching" }]);
+      const response = await fetch(`${API_URL}/api/chat/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: currentQuery }),
+      });
 
-      const response = await fetch(`http://localhost:8000/api/search/text?q=${encodeURIComponent(currentQuery)}`);
-      const data = await response.json();
-      const searchResults = data.results || [];
-      
-      await minDelay;
+      if (!response.ok) throw new Error("Request failed");
 
-      // 3. Update the agent message with real results
-      setResults(searchResults);
-      setMessages(prev => prev.map(m => 
-        m.id === agentMsgId 
-          ? { ...m, content: `I've found some great matches for your request! Here are the best games from our collection:`, status: "ready" }
-          : m
-      ));
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = JSON.parse(line.slice(6));
+          if (payload.done) {
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId ? { ...m, status: "ready" } : m
+            ));
+          } else if (payload.token) {
+            fullContent += payload.token;
+            setMessages(prev => prev.map(m =>
+              m.id === agentMsgId ? { ...m, content: fullContent, status: "streaming" } : m
+            ));
+          }
+        }
+      }
     } catch (err) {
-      console.error("Search failed:", err);
-      setMessages(prev => prev.map(m => 
-        m.id === agentMsgId 
-          ? { ...m, content: "I encountered an error while searching. Please check your connection and try again.", status: "error" }
+      console.error("Chat failed:", err);
+      setMessages(prev => prev.map(m =>
+        m.id === agentMsgId
+          ? { ...m, content: "I encountered an error. Please check your connection and try again.", status: "error" }
           : m
       ));
     } finally {
       setIsSearching(false);
+    }
+  }
+
+  async function handleVoiceToggle() {
+    if (isTranscribing) return;
+
+    if (voiceActive) {
+      mediaRecorderRef.current?.stop();
+      setVoiceActive(false);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          setIsTranscribing(true);
+          try {
+            const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+            const formData = new FormData();
+            formData.append("file", blob, "recording.webm");
+            const response = await fetch(`${API_URL}/api/voice/transcribe`, {
+              method: "POST",
+              body: formData,
+            });
+            const data = await response.json();
+            if (data.transcript) {
+              setQuery(data.transcript);
+              if (textareaRef.current) {
+                textareaRef.current.style.height = "auto";
+                textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + "px";
+              }
+            }
+          } catch (err) {
+            console.error("Transcription failed:", err);
+          } finally {
+            setIsTranscribing(false);
+          }
+        };
+
+        recorder.start();
+        mediaRecorderRef.current = recorder;
+        setVoiceActive(true);
+      } catch (err) {
+        console.error("Microphone access denied:", err);
+      }
     }
   }
 
@@ -294,26 +369,31 @@ function App() {
                                 <motion.div
                                   key={i}
                                   className="w-1.25 h-1.25 rounded-full bg-white/40"
-                                  animate={{ 
+                                  animate={{
                                     opacity: [0.2, 0.5, 0.2],
                                     y: [0, -2, 0]
                                   }}
-                                  transition={{ 
-                                    duration: 1.4, 
-                                    repeat: Infinity, 
+                                  transition={{
+                                    duration: 1.4,
+                                    repeat: Infinity,
                                     delay: i * 0.15,
-                                    ease: "easeInOut" 
+                                    ease: "easeInOut"
                                   }}
                                 />
                               ))}
                             </div>
                           ) : (
-
                             <p className="text-white text-sm leading-relaxed font-medium text-left">
                               {msg.content}
+                              {msg.status === 'streaming' && (
+                                <motion.span
+                                  className="inline-block w-0.5 h-3.5 ml-0.5 bg-white/60 align-middle"
+                                  animate={{ opacity: [1, 0] }}
+                                  transition={{ duration: 0.6, repeat: Infinity, ease: "easeInOut" }}
+                                />
+                              )}
                             </p>
                           )}
-
                         </div>
                         
                         {/* Results grid linked to agent message */}
@@ -385,7 +465,7 @@ function App() {
                   <Image className="h-4 w-4" />
                 </button>
                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
-                <button onClick={() => setVoiceActive(!voiceActive)} className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer ${voiceActive ? "text-steam-blue bg-steam-blue/10" : "text-white/30 hover:text-white/60 hover:bg-white/[0.06]"}`}>
+                <button onClick={handleVoiceToggle} disabled={isTranscribing} className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all duration-200 cursor-pointer ${voiceActive ? "text-steam-blue bg-steam-blue/10" : isTranscribing ? "text-white/20" : "text-white/30 hover:text-white/60 hover:bg-white/[0.06]"}`}>
                   <Mic className="h-4 w-4" />
                 </button>
               </div>
@@ -402,14 +482,18 @@ function App() {
 
           {/* Voice indicator (absolute positioning avoids layout shift) */}
           <AnimatePresence>
-            {voiceActive && (
+            {(voiceActive || isTranscribing) && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex items-center justify-center gap-3 pt-4 shrink-0">
-                <div className="flex items-center gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <motion.div key={i} className="w-1 bg-steam-blue rounded-full" animate={{ height: [4, 16, 4] }} transition={{ duration: 0.8, delay: i * 0.1, repeat: Infinity, ease: "easeInOut" }} />
-                  ))}
-                </div>
-                <span className="text-[12px] font-medium text-steam-blue/70">Listening...</span>
+                {!isTranscribing && (
+                  <div className="flex items-center gap-1">
+                    {[...Array(5)].map((_, i) => (
+                      <motion.div key={i} className="w-1 bg-steam-blue rounded-full" animate={{ height: [4, 16, 4] }} transition={{ duration: 0.8, delay: i * 0.1, repeat: Infinity, ease: "easeInOut" }} />
+                    ))}
+                  </div>
+                )}
+                <span className="text-[12px] font-medium text-steam-blue/70">
+                  {isTranscribing ? "Transcribing..." : "Listening..."}
+                </span>
               </motion.div>
             )}
           </AnimatePresence>

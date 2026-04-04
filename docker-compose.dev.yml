@@ -11,6 +11,7 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/ecomm
       - WHISPER_URL=http://whisper:9000
       - CLIP_SERVICE_URL=http://clip-service:8001
+      - OLLAMA_URL=http://ollama:11434
       - APP_ENV=development
       - LOG_LEVEL=debug
     depends_on:
@@ -19,6 +20,8 @@ services:
       whisper:
         condition: service_healthy
       clip-service:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     volumes:
       - ./be:/app
@@ -63,6 +66,20 @@ services:
       - clip_models:/root/.cache/huggingface
     command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull llama3.2:3b && wait"]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q llama3.2"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
   whisper:
     image: onerahmet/openai-whisper-asr-webservice:latest
     ports:
@@ -99,3 +116,4 @@ volumes:
   pgdata_dev:
   whisper_models:
   clip_models:
+  ollama_models:
