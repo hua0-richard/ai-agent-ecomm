@@ -333,7 +333,7 @@ function App() {
     }
   }
 
-  const fastSpring = { type: "spring", stiffness: 400, damping: 38, mass: 1 };
+  const fastSpring = { type: "spring" as const, stiffness: 400, damping: 38, mass: 1 };
 
   return (
     <div
