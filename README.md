@@ -4,11 +4,12 @@ Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers dis
 
 ## Features
 
-- **Chat agent** — conversational game recommendations with session memory and streaming responses
+- **Chat agent** — conversational game recommendations with session memory and streaming responses, always in English
 - **Text search** — hybrid BM25 + vector search with cross-encoder reranking
 - **Image search** — upload a screenshot or artwork to find visually similar games (CLIP)
 - **Voice input** — speak your query using local Whisper transcription
 - **Chain-of-thought** — collapsible reasoning panel showing tool calls and agent steps
+- **Game screenshots** — product cards show header image and screenshot thumbnails pulled from the Steam catalog
 
 ## Architecture
 
@@ -26,8 +27,8 @@ Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers dis
 - The chat agent uses LangChain tool calling with session memory, streaming via SSE
 
 **LLM:**
-- Dev: Ollama (local) — defaults to `qwen2.5:7b`
-- Prod: OpenRouter — defaults to `anthropic/claude-3.5-sonnet`
+- Dev: Ollama (local) — defaults to `qwen2.5:7b` (swap via `OLLAMA_MODEL` env var, e.g. `gemma3:27b`)
+- Prod: OpenRouter — defaults to `anthropic/claude-3.5-sonnet` (swap via `OPENROUTER_MODEL`)
 
 ## Prerequisites
 
@@ -48,6 +49,8 @@ Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers dis
 
    ```bash
    ollama pull qwen2.5:7b
+   # or for better quality at the cost of speed:
+   ollama pull gemma3:27b
    ```
 
 3. **Configure environment variables**

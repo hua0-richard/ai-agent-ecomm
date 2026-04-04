@@ -431,9 +431,21 @@ function App() {
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1.5 w-full">
-                        <div className="flex items-center gap-1.5 ml-1">
+                        <div className="flex items-center gap-2 ml-1">
+                          <motion.span
+                            className="h-1 w-1 rounded-full bg-[#6abf47]"
+                            animate={msg.status === 'streaming' ? {
+                              opacity: [0.4, 1, 0.4],
+                              scale: [0.8, 1.5, 0.8],
+                              boxShadow: ["0 0 2px 0px rgba(106,191,71,0.2)", "0 0 6px 2px rgba(106,191,71,0.5)", "0 0 2px 0px rgba(106,191,71,0.2)"],
+                            } : {
+                              opacity: 0.4,
+                              scale: 1,
+                              boxShadow: "0 0 3px 0px rgba(106,191,71,0.2)",
+                            }}
+                            transition={{ duration: 1.6, repeat: msg.status === 'streaming' ? Infinity : 0, ease: "easeInOut" }}
+                          />
                           <span className="text-[10px] font-bold text-steam-blue/40 tracking-widest uppercase">Gaben</span>
-                          <span className="h-1.5 w-1.5 rounded-full bg-[#6abf47]/50 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_6px_1px_rgba(106,191,71,0.3)]" />
                         </div>
 
                         {/* Collapsible chain-of-thought */}
@@ -505,24 +517,6 @@ function App() {
                           ) : (
                             <div className="text-sm leading-relaxed text-left [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-4 [&_ol]:my-1 [&_ol]:pl-4 [&_li]:my-0.5 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white [&_strong]:font-semibold [&_code]:text-steam-blue [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/90 [&_h1]:font-semibold [&_h2]:font-semibold [&_a]:text-steam-blue [&_a]:underline">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                              {msg.status === 'streaming' && (
-                                <div className="flex justify-center mt-6 mb-2">
-                                <motion.span
-                                  className="block w-1.5 h-1.5 rounded-full"
-                                  style={{ backgroundColor: "rgba(106,191,71,0.8)" }}
-                                  animate={{
-                                    opacity: [0.4, 1, 0.4],
-                                    scale: [0.7, 1.4, 0.7],
-                                    boxShadow: [
-                                      "0 0 4px 1px rgba(106,191,71,0.2)",
-                                      "0 0 10px 3px rgba(106,191,71,0.6)",
-                                      "0 0 4px 1px rgba(106,191,71,0.2)",
-                                    ],
-                                  }}
-                                  transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                                />
-                                </div>
-                              )}
                             </div>
                           )}
                         </div>
@@ -632,16 +626,38 @@ function App() {
           <AnimatePresence>
             {(voiceActive || isTranscribing) && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex items-center justify-center gap-3 pt-4 shrink-0">
-                {!isTranscribing && (
-                  <div className="flex items-center gap-1">
-                    {[...Array(5)].map((_, i) => (
-                      <motion.div key={i} className="w-1 bg-steam-blue rounded-full" animate={{ height: [4, 16, 4] }} transition={{ duration: 0.8, delay: i * 0.1, repeat: Infinity, ease: "easeInOut" }} />
-                    ))}
+                {isTranscribing ? (
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative w-4 h-4">
+                      <motion.span
+                        className="absolute inset-0 rounded-full border border-steam-blue/25"
+                        animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+                      />
+                      <motion.span
+                        className="absolute inset-0 rounded-full border border-steam-blue/35"
+                        animate={{ scale: [1, 1.35], opacity: [0.5, 0] }}
+                        transition={{ duration: 1.5, delay: 0.5, repeat: Infinity, ease: "easeOut" }}
+                      />
+                      <span className="absolute inset-[4px] rounded-full bg-steam-blue/50" />
+                    </div>
+                    <span className="text-[12px] font-medium text-steam-blue/60 tracking-wide">Processing</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex items-end gap-0.5">
+                      {[0.6, 1, 0.7, 1, 0.5].map((delay, i) => (
+                        <motion.div
+                          key={i}
+                          className="w-0.5 bg-steam-blue/40 rounded-full"
+                          animate={{ height: [3, 10, 3] }}
+                          transition={{ duration: 0.9, delay: i * 0.08, repeat: Infinity, ease: "easeInOut" }}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[12px] font-medium text-steam-blue/60 tracking-wide">Listening</span>
                   </div>
                 )}
-                <span className="text-[12px] font-medium text-steam-blue/70">
-                  {isTranscribing ? "Transcribing..." : "Listening..."}
-                </span>
               </motion.div>
             )}
           </AnimatePresence>
