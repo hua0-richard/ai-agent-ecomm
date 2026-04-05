@@ -17,6 +17,67 @@ class _AppIdInput(BaseModel):
         return int(v)
 
 
+def _parse_price(app_id: int, data: dict) -> str:
+    entry = data.get(str(app_id), {})
+    if not entry.get("success"):
+        return f"No price data found for app_id {app_id}."
+    price_data = entry.get("data", {}).get("price_overview")
+    if not price_data:
+        return "This game is free to play (no price listed)."
+    final = price_data["final"] / 100
+    initial = price_data["initial"] / 100
+    discount = price_data.get("discount_percent", 0)
+    currency = price_data.get("currency", "USD")
+    if discount > 0:
+        return f"Current price: {currency} ${final:.2f} ({discount}% off from ${initial:.2f})"
+    return f"Current price: {currency} ${final:.2f}"
+
+
+def _parse_player_count(app_id: int, data: dict) -> str | None:
+    count = data.get("response", {}).get("player_count")
+    if count is None:
+        return None
+    return f"Current players online: {count:,}"
+
+
+def _parse_game_details(app_id: int, store_data: dict, player_data: dict | None) -> str:
+    lines: list[str] = []
+    entry = store_data.get(str(app_id), {})
+    if entry.get("success") and entry.get("data"):
+        d = entry["data"]
+        price_overview = d.get("price_overview")
+        if price_overview:
+            final = price_overview["final"] / 100
+            discount = price_overview.get("discount_percent", 0)
+            initial = price_overview["initial"] / 100
+            if discount > 0:
+                lines.append(f"Price: ${final:.2f} ({discount}% off from ${initial:.2f})")
+            else:
+                lines.append(f"Price: ${final:.2f}")
+        else:
+            lines.append("Price: Free to Play")
+
+        metacritic = d.get("metacritic", {})
+        if metacritic.get("score"):
+            lines.append(f"Metacritic: {metacritic['score']}/100")
+
+        platforms = d.get("platforms", {})
+        supported = [p for p, ok in platforms.items() if ok]
+        if supported:
+            lines.append(f"Platforms: {', '.join(supported)}")
+
+        categories = [c["description"] for c in d.get("categories", [])]
+        if categories:
+            lines.append(f"Features: {', '.join(categories[:5])}")
+
+    if player_data:
+        count_str = _parse_player_count(app_id, player_data)
+        if count_str:
+            lines.append(count_str)
+
+    return "\n".join(lines) if lines else f"No data found for app_id {app_id}."
+
+
 class SteamPriceTool(BaseTool):
     name: str = "steam_price_tool"
     description: str = (
@@ -35,22 +96,19 @@ class SteamPriceTool(BaseTool):
                 timeout=8,
             )
             resp.raise_for_status()
-            data = resp.json().get(str(app_id), {})
-            if not data.get("success"):
-                return f"No price data found for app_id {app_id}."
-            price_data = data.get("data", {}).get("price_overview")
-            if not price_data:
-                return "This game is free to play (no price listed)."
-            final = price_data["final"] / 100
-            initial = price_data["initial"] / 100
-            discount = price_data.get("discount_percent", 0)
-            currency = price_data.get("currency", "USD")
-            if discount > 0:
-                return (
-                    f"Current price: {currency} ${final:.2f} "
-                    f"({discount}% off from ${initial:.2f})"
+            return _parse_price(app_id, resp.json())
+        except Exception as e:
+            return f"Failed to fetch price: {e}"
+
+    async def _arun(self, app_id: int) -> str:
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                resp = await client.get(
+                    _STORE_API,
+                    params={"appids": app_id, "filters": "price_overview", "cc": "us", "l": "english"},
                 )
-            return f"Current price: {currency} ${final:.2f}"
+                resp.raise_for_status()
+                return _parse_price(app_id, resp.json())
         except Exception as e:
             return f"Failed to fetch price: {e}"
 
@@ -66,17 +124,18 @@ class SteamPlayerCountTool(BaseTool):
 
     def _run(self, app_id: int) -> str:
         try:
-            resp = httpx.get(
-                _STATS_API,
-                params={"appid": app_id},
-                timeout=8,
-            )
+            resp = httpx.get(_STATS_API, params={"appid": app_id}, timeout=8)
             resp.raise_for_status()
-            result = resp.json().get("response", {})
-            count = result.get("player_count")
-            if count is None:
-                return f"Could not retrieve player count for app_id {app_id}."
-            return f"Current players online: {count:,}"
+            return _parse_player_count(app_id, resp.json()) or f"Could not retrieve player count for app_id {app_id}."
+        except Exception as e:
+            return f"Failed to fetch player count: {e}"
+
+    async def _arun(self, app_id: int) -> str:
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                resp = await client.get(_STATS_API, params={"appid": app_id})
+                resp.raise_for_status()
+                return _parse_player_count(app_id, resp.json()) or f"Could not retrieve player count for app_id {app_id}."
         except Exception as e:
             return f"Failed to fetch player count: {e}"
 
@@ -92,54 +151,46 @@ class SteamGameDetailsTool(BaseTool):
     args_schema: type[BaseModel] = _AppIdInput
 
     def _run(self, app_id: int) -> str:
-        lines: list[str] = []
+        store_data = {}
+        player_data = None
         try:
-            store_resp = httpx.get(
+            resp = httpx.get(
                 _STORE_API,
                 params={"appids": app_id, "cc": "us", "l": "english"},
                 timeout=8,
             )
-            store_resp.raise_for_status()
-            store_data = store_resp.json().get(str(app_id), {})
-            if store_data.get("success") and store_data.get("data"):
-                d = store_data["data"]
-                price_overview = d.get("price_overview")
-                if price_overview:
-                    final = price_overview["final"] / 100
-                    discount = price_overview.get("discount_percent", 0)
-                    initial = price_overview["initial"] / 100
-                    if discount > 0:
-                        lines.append(f"Price: ${final:.2f} ({discount}% off from ${initial:.2f})")
-                    else:
-                        lines.append(f"Price: ${final:.2f}")
-                else:
-                    lines.append("Price: Free to Play")
-
-                metacritic = d.get("metacritic", {})
-                if metacritic.get("score"):
-                    lines.append(f"Metacritic: {metacritic['score']}/100")
-
-                platforms = d.get("platforms", {})
-                supported = [p for p, ok in platforms.items() if ok]
-                if supported:
-                    lines.append(f"Platforms: {', '.join(supported)}")
-
-                categories = [c["description"] for c in d.get("categories", [])]
-                if categories:
-                    lines.append(f"Features: {', '.join(categories[:5])}")
+            resp.raise_for_status()
+            store_data = resp.json()
         except Exception as e:
-            lines.append(f"Store data unavailable: {e}")
-
+            return f"Store data unavailable: {e}"
         try:
-            player_resp = httpx.get(_STATS_API, params={"appid": app_id}, timeout=8)
-            player_resp.raise_for_status()
-            count = player_resp.json().get("response", {}).get("player_count")
-            if count is not None:
-                lines.append(f"Current players online: {count:,}")
+            resp = httpx.get(_STATS_API, params={"appid": app_id}, timeout=8)
+            resp.raise_for_status()
+            player_data = resp.json()
         except Exception:
             pass
+        return _parse_game_details(app_id, store_data, player_data)
 
-        return "\n".join(lines) if lines else f"No data found for app_id {app_id}."
+    async def _arun(self, app_id: int) -> str:
+        store_data = {}
+        player_data = None
+        async with httpx.AsyncClient(timeout=8) as client:
+            try:
+                resp = await client.get(
+                    _STORE_API,
+                    params={"appids": app_id, "cc": "us", "l": "english"},
+                )
+                resp.raise_for_status()
+                store_data = resp.json()
+            except Exception as e:
+                return f"Store data unavailable: {e}"
+            try:
+                resp = await client.get(_STATS_API, params={"appid": app_id})
+                resp.raise_for_status()
+                player_data = resp.json()
+            except Exception:
+                pass
+        return _parse_game_details(app_id, store_data, player_data)
 
 
 steam_price_tool = SteamPriceTool()
