@@ -1,12 +1,12 @@
+from contextvars import ContextVar
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, field_validator
 
 from retrievers.hybrid import build_hybrid_retriever
 
-# Module-level store for the most recent product search results.
-# The streaming handler reads this after the tool completes to emit product cards.
-# Note: not safe for concurrent requests — acceptable for single-user / portfolio use.
-last_products: list[dict] = []
+# Context-local store for the most recent product search results.
+# This is safe for concurrent requests.
+search_results_var: ContextVar[list[dict]] = ContextVar("search_results", default=[])
 
 
 class _Input(BaseModel):
@@ -36,17 +36,17 @@ class ProductSearchTool(BaseTool):
         return self._search(query)
 
     def _search(self, query: str) -> str:
-        global last_products
         retriever = build_hybrid_retriever()
         docs = retriever.invoke(query)
         if not docs:
-            last_products = []
+            search_results_var.set([])
             return "No matching games found."
 
-        last_products = [doc.metadata for doc in docs]
+        results = [doc.metadata for doc in docs]
+        search_results_var.set(results)
         return "\n".join(
             f"[{i+1}] {d['name']} (app_id={d.get('app_id', 'unknown')}, ${d['price']:.2f}): {d.get('description', '')}"
-            for i, d in enumerate(last_products)
+            for i, d in enumerate(results)
         )
 
 

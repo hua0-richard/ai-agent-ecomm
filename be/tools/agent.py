@@ -51,6 +51,7 @@ PERSONA:
 - Keep responses concise. A few sentences per game is enough — don't write essays.
 - Match the user's energy. Short question → short answer. Detailed question → more detail.
 - Never re-introduce yourself or your capabilities mid-conversation.
+- Use Markdown formatting (like **bolding** game names or using bulleted lists) to make your response structured and easy to read.
 
 TOOLS:
 - product_search_tool: find games by genre, vibe, gameplay style, or name. \
@@ -149,7 +150,8 @@ def _match_products_to_response(products: list[dict], response: str) -> list[dic
 
 
 async def stream_agent_response(message: str, session_id: str | None = None, history_override: str | None = None):
-    _product_search_module.last_products = []
+    # Clear any previous search results in this context
+    _product_search_module.search_results_var.set([])
     history = _get_history(session_id)
     full_response = ""
     product_search_called = False
@@ -170,11 +172,12 @@ async def stream_agent_response(message: str, session_id: str | None = None, his
             tool_name = event.get("name", "")
             if tool_name == "product_search_tool":
                 product_search_called = True
-                if _product_search_module.last_products:
-                    display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
+                results = _product_search_module.search_results_var.get()
+                if results:
+                    display = "\n".join(d.get("name", "") for d in results)
                     yield {"type": "tool_result", "content": display}
                     # Keep track of search results for fallback matching
-                    pending_products = list(_product_search_module.last_products)
+                    pending_products = list(results)
                 else:
                     yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
                 # Flush any tokens that arrived before the tool fired
@@ -184,8 +187,8 @@ async def stream_agent_response(message: str, session_id: str | None = None, his
             elif tool_name == "show_product_cards":
                 # The agent has explicitly chosen which cards to show
                 app_ids = event["data"].get("input", {}).get("app_ids", [])
-                # Use pending_products (from search) or the global last_products to find metadata
-                source = pending_products if pending_products else _product_search_module.last_products
+                # Use pending_products (from search) or the context var to find metadata
+                source = pending_products if pending_products else _product_search_module.search_results_var.get()
                 explicit_ui_products = [p for p in source if p.get("app_id") in app_ids]
                 yield {"type": "tool_result", "content": f"UI updated to show {len(explicit_ui_products)} cards."}
             else:

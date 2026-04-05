@@ -118,10 +118,11 @@ flowchart LR
 - Text queries use BM25 (keyword) + sentence-transformer vector search fused via RRF, then reranked by a cross-encoder to top 3
 - Image queries use TinyCLIP to embed the uploaded image and search the `image_embedding` column via pgvector cosine distance
 - The chat agent uses LangChain tool calling with session memory, streaming via SSE
-- Product cards are deterministically reordered after the LLM responds, matching the order games are mentioned in the text
+- **Reliable Card Display:** The agent explicitly calls `show_product_cards` with `app_ids` to show game art. A fallback name-matching algorithm reorders cards to match the narrative order of the response.
 
 **Agent tools:**
 - `product_search_tool` — hybrid retrieval over the local catalog (always called before any recommendation)
+- `show_product_cards` — explicitly displays game art and cards in the UI using app_ids (ensures 100% reliability)
 - `steam_game_details_tool` — live price, player count, Metacritic, reviews, and platform info from Steam
 - `steam_price_tool` — current price and active discounts
 - `steam_player_count_tool` — live concurrent player count
@@ -252,7 +253,7 @@ docker compose -f docker-compose.dev.yml down -v
 
 ## Future Improvements
 
-- **Robust Game Matching** — Move beyond substring matching to use regex with word boundaries in `_match_products_to_response`. This will prevent partial name matches (e.g., "Elden" matching "Elden Ring") and handle punctuation like colons or exclamation marks more gracefully.
 - **Concurrency & State Safety** — Replace the global `last_products` state in `be/tools/product_search.py` with a scoped, session-aware mechanism. This will ensure that simultaneous users don't overwrite each other's search results during the streaming phase.
 - **Handling Partial Search Results** — Relax the agent's "always recommend 3" constraint to "up to 3" to improve reliability when the catalog contains fewer than 3 high-quality matches for a specific query.
 - **Persistent Chat History** — Move from `InMemoryChatMessageHistory` to a database-backed history (e.g., PostgreSQL) to allow users to resume conversations after a backend restart.
+- **Improved Name Matching (Fallback)** — Enhance the fallback regex matching in `_match_products_to_response` to better handle punctuation and word boundaries for cases where the explicit tool call is skipped.
