@@ -101,18 +101,37 @@ _executor = AgentExecutor(
 def _match_products_to_response(products: list[dict], response: str) -> list[dict]:
     """Match product cards to the LLM response by name, returning only confirmed matches
     in the order they appear in the text. Products the LLM didn't mention are dropped —
-    showing an unrelated card is worse than showing fewer cards."""
+    showing an unrelated card is worse than showing fewer cards.
+
+    Matches longer names first so that e.g. "Resident Evil Village" is consumed before
+    "Resident Evil" can falsely match the same text region."""
     if not products or not response:
         return products
     response_lower = response.lower()
 
-    mentioned: list[tuple[int, dict]] = []
+    # Sort products by name length descending so longer names match first
+    candidates = sorted(products, key=lambda p: len(p.get("name") or ""), reverse=True)
 
-    for p in products:
+    mentioned: list[tuple[int, dict]] = []
+    # Track which character ranges have been claimed by a match
+    claimed: set[int] = set()
+
+    for p in candidates:
         name = (p.get("name") or "").lower()
-        pos = response_lower.find(name) if name else -1
-        if pos >= 0:
-            mentioned.append((pos, p))
+        if not name:
+            continue
+        # Search for the name, skipping regions already claimed by a longer name
+        start = 0
+        while start <= len(response_lower) - len(name):
+            pos = response_lower.find(name, start)
+            if pos < 0:
+                break
+            match_range = range(pos, pos + len(name))
+            if not any(i in claimed for i in match_range):
+                mentioned.append((pos, p))
+                claimed.update(match_range)
+                break
+            start = pos + 1
 
     # Sort by position in the response so cards match the LLM's narrative order
     mentioned.sort(key=lambda x: x[0])
