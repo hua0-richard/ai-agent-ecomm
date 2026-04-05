@@ -112,6 +112,7 @@ body::before {
   body {
     @apply bg-background text-foreground antialiased;
     margin: 0;
+    letter-spacing: -0.01em;
   }
   html {
     @apply font-sans;

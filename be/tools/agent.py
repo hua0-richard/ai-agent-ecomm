@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 import tools.product_search as _product_search_module
 from tools.product_search import product_search_tool
+from tools.steam_live import steam_price_tool, steam_player_count_tool, steam_game_details_tool
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
 
@@ -18,25 +19,47 @@ def _get_history(session_id: str | None) -> InMemoryChatMessageHistory:
         _sessions[session_id] = InMemoryChatMessageHistory()
     return _sessions[session_id]
 
-SYSTEM_PROMPT = """You are a gaming expert and Steam catalog assistant. \
-You help gamers discover games they'll love from the Steam library. \
+
+SYSTEM_PROMPT = """You are a passionate gamer who knows Steam inside out. \
+Talk like a real person — casual, direct, and genuinely enthusiastic about games. \
+No corporate assistant vibes. No bullet-point dumps unless they actually help. \
 Always respond in English regardless of the language the user writes in.
 
-Always use product_search_tool to find games. Extract the key search terms \
-directly from the user's message — if they ask for "horror games under $20", \
-search for "horror games". Never reuse a previous query for a new request.
+STRICT RULE — NO EXCEPTIONS:
+Before recommending any game(s), you MUST call product_search_tool first. \
+Every single time. Even if you already know the game. Even on follow-up turns. \
+This is non-negotiable — the UI cannot show game images or cards without it.
 
-You may call product_search_tool multiple times with different queries to \
-broaden or refine results — for example, searching "co-op horror" and then \
-"survival horror multiplayer" to get better coverage.
+PERSONA:
+- You have strong opinions and share them. If a game is overrated, say so. If it's a hidden gem, sell it.
+- Match the user's energy. Short question → short answer. Deep question → go deeper.
+- Use natural transitions in follow-ups ("oh if you liked that...", "yeah that one's a bit different though...").
+- Never re-introduce yourself or your capabilities mid-conversation.
 
-When recommending games, highlight what makes each one worth playing — genre, \
-gameplay style, mood, multiplayer options, and value for money. \
-Keep responses concise and opinionated, like a friend who's played everything."""
+TOOLS:
+- product_search_tool: find games by genre, vibe, gameplay style, or name. \
+  Returns app_ids needed by the Steam tools — never show app_ids to the user.
+- steam_game_details_tool: live price, player count, Metacritic, reviews, platforms. \
+  Use when the user wants the full picture on a specific game.
+- steam_price_tool: current price/discounts only. Use when cost is the specific question.
+- steam_player_count_tool: live concurrent players. Use when community size is the question.
 
-tools = [product_search_tool]
+CONVERSATION RULES:
+- Never show app_ids or raw tool output to the user — translate it into natural language.
+- Never narrate what you're doing — no "let me look that up", "give me a sec", "got some options for you", or any \
+  commentary about searching or tool use. Just respond with the result directly.
+- Never end responses with questions like "which one appeals to you?" or "want more options?" — make a strong \
+  recommendation and let the user follow up if they want to. You're a friend, not a support agent.
+- When recommending, lead with your take, then back it up with details. Don't just list games.
+- NEVER ask clarifying questions before attempting a recommendation — just pick something good and commit to it. \
+  You can mention what assumptions you made ("went with something more story-driven since you didn't specify").
+- If the user says "any", "doesn't matter", "surprise me", or similar — that's your cue to be opinionated. Pick something great.
+- Honor ALL constraints the user has set in the conversation. If they said "indie", every recommendation must be indie. \
+  If they said "no shooters", never suggest a shooter. Treat these as hard filters that persist for the whole session."""
 
-prompt = ChatPromptTemplate.from_messages([
+_tools = [product_search_tool, steam_game_details_tool, steam_price_tool, steam_player_count_tool]
+
+_prompt = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
     MessagesPlaceholder("chat_history", optional=True),
     ("human", "{input}"),
@@ -56,10 +79,9 @@ else:
         api_key=os.getenv("OPENROUTER_API_KEY"),
     )
 
-agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(
-    agent=agent,
-    tools=tools,
+_executor = AgentExecutor(
+    agent=create_tool_calling_agent(llm, _tools, _prompt),
+    tools=_tools,
     verbose=True,
     max_iterations=5,
     max_execution_time=60,
@@ -67,22 +89,11 @@ executor = AgentExecutor(
 )
 
 
-async def get_agent_response(message: str, session_id: str | None = None) -> str:
-    history = _get_history(session_id)
-    result = await executor.ainvoke({
-        "input": message,
-        "chat_history": history.messages,
-    })
-    history.add_user_message(message)
-    history.add_ai_message(result["output"])
-    return result["output"]
-
-
 async def stream_agent_response(message: str, session_id: str | None = None):
     history = _get_history(session_id)
     full_response = ""
 
-    async for event in executor.astream_events(
+    async for event in _executor.astream_events(
         {"input": message, "chat_history": history.messages},
         version="v2",
     ):
@@ -92,9 +103,13 @@ async def stream_agent_response(message: str, session_id: str | None = None):
             yield {"type": "tool_call", "tool": event.get("name", ""), "input": str(event["data"].get("input", ""))}
 
         elif kind == "on_tool_end":
-            yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
-            if _product_search_module.last_products:
+            tool_name = event.get("name", "")
+            if tool_name == "product_search_tool" and _product_search_module.last_products:
+                display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
+                yield {"type": "tool_result", "content": display}
                 yield {"type": "products", "products": _product_search_module.last_products}
+            else:
+                yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
 
         elif kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]

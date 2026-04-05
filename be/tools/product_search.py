@@ -23,7 +23,8 @@ class ProductSearchTool(BaseTool):
     name: str = "product_search_tool"
     description: str = (
         "Search the Steam game catalog by description, genre, mood, or gameplay style. "
-        "Returns the most relevant games ranked by relevance."
+        "Returns the most relevant games ranked by relevance, including each game's app_id "
+        "which is required by the Steam live data tools."
     )
     args_schema: type[BaseModel] = _Input
 
@@ -37,7 +38,7 @@ class ProductSearchTool(BaseTool):
 
         last_products = [doc.metadata for doc in docs]
         return "\n".join(
-            f"- {d['name']} (${d['price']:.2f}): {d.get('description', '')}"
+            f"- {d['name']} (app_id={d.get('app_id', 'unknown')}, ${d['price']:.2f}): {d.get('description', '')}"
             for d in last_products
         )
 

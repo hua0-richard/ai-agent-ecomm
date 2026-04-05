@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, Send, ChevronDown, Wrench } from "lucide-react";
+import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, ChevronLeft, ChevronRight, HelpCircle, Mic, Image, Send, ChevronDown, Wrench, Shuffle } from "lucide-react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -81,6 +81,8 @@ function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [expandedThoughts, setExpandedThoughts] = useState<Set<string>>(new Set());
 
+  const sessionIdRef = useRef<string>(crypto.randomUUID());
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -132,42 +134,63 @@ function App() {
       const currentQuery = `Image: ${file.name}`;
       const imageDataUrl = URL.createObjectURL(file);
 
-      // 1. Add user message and transition view
       userScrolledUp.current = false;
       setMessages(prev => [...prev, { id: userMsgId, sender: "user", content: currentQuery, isImage: true, imageDataUrl }]);
       setLastQuery(currentQuery);
       setView("chat");
       setIsSearching(true);
-      
+
+      await new Promise(r => setTimeout(r, 300));
+      setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching" }]);
+
       const formData = new FormData();
       formData.append("file", file);
+      if (sessionIdRef.current) formData.append("session_id", sessionIdRef.current);
 
       try {
-        const minDelay = new Promise((r) => setTimeout(r, 2000));
-        
-        // 2. Short delay before showing "Thinking..."
-        await new Promise(r => setTimeout(r, 500));
-        setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "Thinking...", status: "searching" }]);
-
-        const response = await fetch(`${API_URL}/api/search/image`, {
+        const response = await fetch(`${API_URL}/api/chat/image`, {
           method: "POST",
           body: formData,
         });
-        const data = await response.json();
-        const searchResults = data.results || [];
-        
-        await minDelay;
-        
-        // 3. Update the agent message with real results
+
+        if (!response.ok) throw new Error("Request failed");
+
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullContent = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const payload = JSON.parse(line.slice(6));
+            if (payload.type === "done") {
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, status: "ready" } : m));
+            } else if (payload.type === "token") {
+              fullContent += payload.content;
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, content: fullContent, status: "streaming" } : m));
+            } else if (payload.type === "products") {
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, results: payload.products } : m));
+            } else if (payload.type === "tool_call") {
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, thoughts: [...(m.thoughts ?? []), { type: "tool_call", tool: payload.tool, input: payload.input }] } : m));
+            } else if (payload.type === "tool_result") {
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, thoughts: [...(m.thoughts ?? []), { type: "tool_result", content: payload.content }] } : m));
+            } else if (payload.type === "error") {
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, content: "Sorry, I had trouble processing that image. Please try again.", status: "error" } : m));
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Image search failed:", err);
         setMessages(prev => prev.map(m =>
           m.id === agentMsgId
-            ? { ...m, content: "I've analyzed your image and found these matching games from the Steam library.", status: "ready", results: searchResults }
-            : m
-        ));
-      } catch (err) {
-        console.error("Search failed:", err);
-        setMessages(prev => prev.map(m => 
-          m.id === agentMsgId 
             ? { ...m, content: "Sorry, I had trouble processing that image. Please try again.", status: "error" }
             : m
         ));
@@ -198,7 +221,7 @@ function App() {
       const response = await fetch(`${API_URL}/api/chat/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: currentQuery }),
+        body: JSON.stringify({ message: currentQuery, session_id: sessionIdRef.current }),
       });
 
       if (!response.ok) throw new Error("Request failed");
@@ -382,56 +405,50 @@ function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -40, filter: "blur(10px)", height: 0, marginBottom: 0, overflow: 'hidden' }}
                 transition={{ duration: 0.4, ease }}
-                className="text-center mb-10 shrink-0"
+                className="text-center mb-8 shrink-0"
               >
-                <div className="flex items-center justify-center gap-3 mb-6">
-                  <svg className="w-12 h-12 text-white/80" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.454 1.012H7.54zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z" />
-                  </svg>
-                  <div className="flex items-center gap-2 text-white/80">
-                    <span className="text-[2rem] font-semibold tracking-[0.05em] uppercase leading-none">GABEN</span>
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#6abf47]/70 animate-[pulse_3s_ease-in-out_infinite] shadow-[0_0_10px_2px_rgba(106,191,71,0.4)]" />
+                <div className="flex items-center justify-center mb-5">
+                  <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl glass-subtle">
+                    <svg className="w-7 h-7 text-white/65" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.454 1.012H7.54zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z" />
+                    </svg>
+                    <div className="w-px h-4 bg-white/10" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[1.1rem] font-semibold tracking-[0.1em] uppercase leading-none text-white/75">GABEN</span>
+                      <span className="h-2 w-2 rounded-full bg-[#6abf47]/80 animate-[pulse_3s_ease-in-out_infinite] shadow-[0_0_8px_2px_rgba(106,191,71,0.4)]" />
+                    </div>
                   </div>
                 </div>
-                <h1 className="text-[clamp(1.75rem,4vw,2.75rem)] font-semibold text-white tracking-[-0.03em] mb-3">
+                <h1
+                  className="text-[clamp(1.75rem,4vw,2.75rem)] font-semibold tracking-[-0.04em] mb-0"
+                  style={{
+                    background: "linear-gradient(135deg, #ffffff 0%, rgba(180, 220, 255, 0.92) 100%)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    backgroundClip: "text",
+                  }}
+                >
                   Like having a friend who's played everything.
                 </h1>
-                <p className="text-white/40 text-[15px] max-w-sm mx-auto leading-relaxed">
-                  Ask anything. Get genuine recommendations.
-                </p>
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Chat / Results history */}
           <div ref={chatScrollRef} onScroll={handleChatScroll} className={`flex-1 overflow-y-auto no-scrollbar min-h-0 ${view === 'chat' ? 'mb-6 py-4' : ''}`}>
-            <div className="space-y-8 pb-4">
-              {messages.map((msg, index) => (
+            <div className="space-y-6 pb-4">
+              {messages.map((msg) => (
                 <motion.div
                   key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease }}
                   className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className="flex flex-col gap-1.5 max-w-[90%] w-full">
+                  <div className="w-full">
                     {msg.sender === 'user' ? (
-                      <div className="flex flex-col items-end gap-1.5 text-right w-full relative">
-                        {index === messages.length - 1 && isSearching && (
-                          <div className="absolute -left-8 top-1/2 -translate-y-1/2">
-                            <motion.div
-                              className="w-4 h-4 rounded-full"
-                              style={{
-                                background: "conic-gradient(from 0deg, transparent 0%, rgba(26,159,255,0.1) 20%, rgba(26,159,255,0.5) 60%, transparent 100%)",
-                                mask: "radial-gradient(circle, transparent 50%, black 52%)",
-                                WebkitMask: "radial-gradient(circle, transparent 50%, black 52%)",
-                              }}
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                            />
-                          </div>
-                        )}
-                        <span className="text-[10px] font-bold text-white/20 tracking-widest uppercase mr-1">User</span>
-                        <div className={`${glass} bg-white/[0.08] px-4 py-2.5 rounded-2xl border-white/10 shadow-xl`}>
+                      <div className="flex justify-end w-full">
+                        <div className={`${glass} bg-white/[0.06] px-4 py-2.5 rounded-2xl border-white/8 shadow-lg max-w-[75%]`}>
                           {msg.imageDataUrl && (
                             <img
                               src={msg.imageDataUrl}
@@ -439,7 +456,7 @@ function App() {
                               className="max-w-[240px] max-h-[180px] rounded-lg object-cover mb-2"
                             />
                           )}
-                          <p className="text-white/90 text-sm font-medium text-left leading-relaxed">{msg.content}</p>
+                          <p className="text-white/90 text-[15px] font-medium leading-relaxed">{msg.content}</p>
                         </div>
                       </div>
                     ) : (
@@ -458,7 +475,7 @@ function App() {
                             }}
                             transition={{ duration: 1.6, repeat: msg.status === 'streaming' ? Infinity : 0, ease: "easeInOut" }}
                           />
-                          <span className="text-[10px] font-bold text-steam-blue/40 tracking-widest uppercase">Gaben</span>
+                          <span className="text-[10px] font-medium text-white/30 tracking-[0.08em] uppercase">Gaben</span>
                         </div>
 
                         {/* Collapsible chain-of-thought */}
@@ -470,7 +487,7 @@ function App() {
                                 next.has(msg.id) ? next.delete(msg.id) : next.add(msg.id);
                                 return next;
                               })}
-                              className="flex items-center gap-1.5 text-[11px] text-white/25 hover:text-white/50 transition-colors mb-1.5 cursor-pointer"
+                              className="flex items-center gap-1.5 text-[10px] text-white/20 hover:text-white/45 transition-colors mb-1.5 cursor-pointer tracking-wide"
                             >
                               <motion.div animate={{ rotate: expandedThoughts.has(msg.id) ? 0 : -90 }} transition={{ duration: 0.2 }}>
                                 <ChevronDown className="h-3 w-3" />
@@ -513,50 +530,59 @@ function App() {
                           </div>
                         )}
 
-                        <div className={`${glass} bg-steam-blue/20 px-4 py-3 rounded-2xl border-steam-blue/30 shadow-[0_0_30px_rgba(26,159,255,0.1)] w-full`}>
-                          {msg.status === 'searching' ? (
-                            <div className="flex items-center justify-center h-5 px-1">
-                              <motion.div
-                                className="w-5 h-5 rounded-full"
-                                style={{
-                                  background: "conic-gradient(from 0deg, transparent 0%, rgba(26,159,255,0.08) 20%, rgba(26,159,255,0.7) 55%, rgba(160,220,255,0.9) 70%, transparent 100%)",
-                                  mask: "radial-gradient(circle, transparent 53%, black 55%)",
-                                  WebkitMask: "radial-gradient(circle, transparent 53%, black 55%)",
-                                }}
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        {msg.status === 'searching' && !msg.content && (
+                          <div className="flex items-center gap-2 px-4 pt-1 pb-0.5">
+                            {[0, 1, 2].map((i) => (
+                              <motion.span
+                                key={i}
+                                className="block h-[5px] w-[5px] rounded-full bg-white/30"
+                                animate={{ opacity: [0.2, 0.8, 0.2], y: [0, -4, 0] }}
+                                transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: i * 0.2 }}
                               />
-                            </div>
-                          ) : (
-                            <div className="text-sm leading-relaxed text-left [&_p]:my-1 [&_ul]:my-1 [&_ul]:pl-4 [&_ol]:my-1 [&_ol]:pl-4 [&_li]:my-0.5 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white [&_strong]:font-semibold [&_code]:text-steam-blue [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/90 [&_h1]:font-semibold [&_h2]:font-semibold [&_a]:text-steam-blue [&_a]:underline">
+                            ))}
+                          </div>
+                        )}
+
+                        {msg.content && (
+                          <div className={`${glass} bg-steam-blue/[0.04] px-4 py-3.5 rounded-2xl border-white/[0.06] w-full`}>
+                            <div className="text-[15px] leading-[1.75] text-white/75 text-left [&_p]:my-2 [&_ul]:my-2 [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:pl-5 [&_li]:my-1 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white/90 [&_strong]:font-semibold [&_code]:text-steam-blue/90 [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:tracking-normal [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/85 [&_h1]:font-semibold [&_h2]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:tracking-[-0.02em] [&_a]:text-steam-blue/80 [&_a]:underline [&_a]:underline-offset-2">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                              {msg.status === 'streaming' && (
+                                <motion.span
+                                  className="inline-block w-[2px] h-[14px] bg-white/40 rounded-full ml-0.5 align-middle"
+                                  animate={{ opacity: [1, 0, 1] }}
+                                  transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut" }}
+                                />
+                              )}
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        )}
                         
                         {/* Results grid linked to agent message */}
                         {msg.status === 'ready' && msg.results && msg.results.length > 0 && (
-                          <div className="grid grid-cols-1 gap-4 mt-4 w-full">
+                          <div className="grid grid-cols-1 gap-3 mt-4 w-full">
                             {msg.results.map((product, i) => (
                               <motion.div
                                 layout
                                 key={product.id}
-                                initial={{ opacity: 0, y: 15 }}
+                                initial={{ opacity: 0, y: 12 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.1 + i * 0.04 }}
-                                className={`${glass} p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors flex flex-col gap-3`}
+                                transition={{ delay: 0.08 + i * 0.06, duration: 0.3, ease }}
+                                className={`${glass} p-4 rounded-2xl border border-white/[0.06] hover:border-white/[0.10] hover:bg-white/[0.025] hover:shadow-[0_4px_16px_rgba(0,0,0,0.18)] transition-all duration-500 ease-[cubic-bezier(0.25,0.46,0.45,0.94)] flex flex-col gap-3`}
                               >
                                 <div className="flex gap-4">
                                   {product.image_url && (
-                                    <img src={product.image_url} alt={product.name} className="w-20 h-20 flex-shrink-0 object-cover rounded-lg bg-white/5" />
+                                    <img src={product.image_url} alt={product.name} className="w-36 h-20 flex-shrink-0 object-cover rounded-xl bg-white/5" />
                                   )}
-                                  <div className="flex-1 min-w-0">
-                                    <h3 className="text-white font-medium truncate text-sm">{product.name}</h3>
-                                    <p className="text-white/40 text-xs line-clamp-2 mt-1">{product.description}</p>
+                                  <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                                    <div>
+                                      <h3 className="text-white/92 font-semibold text-[15px] tracking-[-0.02em] leading-snug">{product.name}</h3>
+                                      <p className="text-white/45 text-[13px] line-clamp-2 mt-1.5 leading-[1.55]">{product.description}</p>
+                                    </div>
                                     <div className="flex items-center justify-between mt-2">
-                                      <span className="text-steam-blue font-semibold text-sm">${product.price}</span>
+                                      <span className="text-steam-blue/80 font-semibold text-[14px]">${product.price}</span>
                                       {product.similarity && (
-                                        <span className="text-[10px] text-white/20 px-1.5 py-0.5 rounded-full border border-white/5">
+                                        <span className="text-[11px] text-white/25 px-2 py-0.5 rounded-full border border-white/[0.07]">
                                           {Math.round(product.similarity * 100)}% match
                                         </span>
                                       )}
@@ -566,13 +592,13 @@ function App() {
                                 {(() => {
                                   const shots = parseScreenshots(product.screenshots).slice(0, 3);
                                   return shots.length > 0 ? (
-                                    <div className="flex gap-2 overflow-x-auto">
+                                    <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
                                       {shots.map((url, si) => (
                                         <img
                                           key={si}
                                           src={url}
                                           alt={`${product.name} screenshot ${si + 1}`}
-                                          className="h-20 w-auto flex-shrink-0 rounded-md object-cover bg-white/5"
+                                          className="h-28 w-auto flex-shrink-0 rounded-xl object-cover bg-white/5"
                                         />
                                       ))}
                                     </div>
@@ -624,56 +650,90 @@ function App() {
                   <Mic className="h-4 w-4" />
                 </button>
               </div>
-              <motion.button
-                onClick={handleSearch}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all duration-300 cursor-pointer ${query.trim() ? "cta-frosted" : "bg-white/[0.06] text-white/20"}`}
-              >
-                <Send className="h-4 w-4" />
-              </motion.button>
+              <div className="flex items-center gap-2">
+                <AnimatePresence>
+                  {query.trim() && (
+                    <motion.span
+                      initial={{ opacity: 0, x: 4 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 4 }}
+                      transition={{ duration: 0.15 }}
+                      className="text-[11px] text-white/20 select-none"
+                    >
+                      ↵
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+                <motion.button
+                  onClick={handleSearch}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all duration-300 cursor-pointer ${query.trim() ? "cta-frosted" : "bg-white/[0.06] text-white/20"}`}
+                >
+                  <Send className="h-4 w-4" />
+                </motion.button>
+              </div>
             </div>
           </motion.div>
 
-          {/* Voice indicator (absolute positioning avoids layout shift) */}
+          {/* Voice indicator — container animates height once on enter/exit; bar animations are contained inside */}
+          <motion.div
+            className="shrink-0 overflow-hidden"
+            animate={{ height: (voiceActive || isTranscribing) ? 48 : 0 }}
+            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            style={{ display: "flex", justifyContent: "center", paddingTop: 12, paddingBottom: 8 }}
+          >
           <AnimatePresence>
             {(voiceActive || isTranscribing) && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex items-center justify-center gap-3 pt-4 shrink-0">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                className="w-32"
+              >
                 {isTranscribing ? (
-                  <div className="flex items-center gap-2.5">
-                    <div className="relative w-4 h-4">
-                      <motion.span
-                        className="absolute inset-0 rounded-full border border-steam-blue/25"
-                        animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
-                      />
-                      <motion.span
-                        className="absolute inset-0 rounded-full border border-steam-blue/35"
-                        animate={{ scale: [1, 1.35], opacity: [0.5, 0] }}
-                        transition={{ duration: 1.5, delay: 0.5, repeat: Infinity, ease: "easeOut" }}
-                      />
-                      <span className="absolute inset-[4px] rounded-full bg-steam-blue/50" />
-                    </div>
-                    <span className="text-[12px] font-medium text-steam-blue/60 tracking-wide">Processing</span>
+                  <div className="w-full h-7 flex items-center justify-center gap-2 rounded-full glass-subtle">
+                    <motion.div
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{
+                        background: "conic-gradient(from 0deg, transparent 0%, rgba(26,159,255,0.1) 25%, rgba(26,159,255,0.65) 70%, transparent 100%)",
+                        mask: "radial-gradient(circle, transparent 51%, black 53%)",
+                        WebkitMask: "radial-gradient(circle, transparent 51%, black 53%)",
+                      }}
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }}
+                    />
+                    <span className="text-[10px] font-medium text-white/35 tracking-wide">Transcribing</span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex items-end gap-0.5">
-                      {[0.6, 1, 0.7, 1, 0.5].map((delay, i) => (
+                  <div className="w-full h-7 flex items-center justify-center gap-2.5 rounded-full glass-subtle">
+                    <div className="flex items-center gap-[3px] h-5">
+                      {([
+                        { w: 1,   dur: 0.75, h: [2,  8, 2]  },
+                        { w: 1.5, dur: 1.0,  h: [3, 14, 3]  },
+                        { w: 1,   dur: 0.82, h: [2,  7, 2]  },
+                        { w: 2,   dur: 1.12, h: [4, 17, 4]  },
+                        { w: 1,   dur: 0.88, h: [3, 11, 3]  },
+                        { w: 1.5, dur: 0.96, h: [3, 13, 3]  },
+                        { w: 1,   dur: 0.7,  h: [2,  7, 2]  },
+                      ] as { w: number; dur: number; h: number[] }[]).map((bar, i) => (
                         <motion.div
                           key={i}
-                          className="w-0.5 bg-steam-blue/40 rounded-full"
-                          animate={{ height: [3, 10, 3] }}
-                          transition={{ duration: 0.9, delay: i * 0.08, repeat: Infinity, ease: "easeInOut" }}
+                          className="rounded-full bg-steam-blue/45"
+                          style={{ width: bar.w }}
+                          animate={{ height: bar.h }}
+                          transition={{ duration: bar.dur, delay: i * 0.04, repeat: Infinity, ease: "easeInOut", repeatType: "mirror" }}
                         />
                       ))}
                     </div>
-                    <span className="text-[12px] font-medium text-steam-blue/60 tracking-wide">Listening</span>
+                    <span className="text-[10px] font-medium text-white/35 tracking-wide">Listening</span>
                   </div>
                 )}
               </motion.div>
             )}
           </AnimatePresence>
+          </motion.div>
 
           <AnimatePresence>
             {view === "landing" && (
@@ -685,13 +745,13 @@ function App() {
                 transition={{ duration: 0.4, ease }}
                 className="shrink-0"
               >
-                <div className="flex items-center gap-2 mt-6">
+                <div className="flex items-center gap-2 mt-1">
                   <button onClick={() => scrollCategories(-1)} className="hidden sm:flex flex-shrink-0 h-8 w-8 items-center justify-center text-white/25 hover:text-white/50 transition-colors cursor-pointer"><ChevronLeft className="h-4 w-4" /></button>
                   <div ref={scrollRef} className="flex gap-2 overflow-x-auto scroll-smooth" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
                     {SEARCH_CATEGORIES.map((cat) => (
                       <button key={cat.label} onClick={() => setQuery(cat.label + " games")} className={`flex-shrink-0 flex flex-col items-center gap-1.5 w-20 py-3 rounded-xl cursor-pointer group transition-all duration-200 ${glass} ${glassHover}`}>
                         <cat.icon className="h-5 w-5 text-white/25 group-hover:text-white/60 transition-colors" strokeWidth={1.5} />
-                        <span className="text-[10px] font-medium text-white/35 group-hover:text-white/70 transition-colors">{cat.label}</span>
+                        <span className="text-[11px] font-medium text-white/45 group-hover:text-white/75 transition-colors tracking-[-0.01em]">{cat.label}</span>
                       </button>
                     ))}
                   </div>
@@ -699,13 +759,14 @@ function App() {
                 </div>
 
                 <div className="mt-6 text-center pb-8">
-                  <button onClick={() => setPromptSet((s) => s + 1)} className="inline-flex items-center gap-1.5 text-[12px] font-medium text-white/30 hover:text-white/50 mb-3 cursor-pointer group">
+                  <button onClick={() => setPromptSet((s) => s + 1)} className="inline-flex items-center gap-1.5 text-[12px] font-medium text-white/30 hover:text-white/55 mb-3 cursor-pointer group transition-colors duration-200">
+                    <Shuffle className="h-3 w-3 group-hover:text-white/55 transition-colors duration-200" />
                     Try an example
                   </button>
                   <AnimatePresence mode="wait">
                     <motion.div key={promptSet} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.25 }} className="flex flex-wrap justify-center gap-2">
                       {prompts.map((prompt) => (
-                        <button key={prompt} onClick={() => setQuery(prompt)} className={`text-[12px] font-medium text-white/45 hover:text-white/80 px-3.5 py-2 rounded-xl cursor-pointer transition-all duration-200 ${glass} ${glassHover}`}>{prompt}</button>
+                        <button key={prompt} onClick={() => setQuery(prompt)} className={`text-[13px] font-medium text-white/45 hover:text-white/80 px-3.5 py-2 rounded-xl cursor-pointer transition-all duration-200 tracking-[-0.01em] hover:-translate-y-0.5 ${glass} ${glassHover}`}>{prompt}</button>
                       ))}
                     </motion.div>
                   </AnimatePresence>

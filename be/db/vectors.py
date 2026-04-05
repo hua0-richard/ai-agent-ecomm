@@ -66,7 +66,8 @@ def similarity_search_sync(embedding: list[float], limit: int = 10) -> list[dict
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT p.id, p.name, p.description, p.price, p.image_url,
+            SELECT p.id, p.name, p.description, p.price,
+                   COALESCE(p.image_url, g.header_image) AS image_url,
                    g.screenshots,
                    1 - (p.image_embedding <=> %s::vector) AS similarity
             FROM products p
@@ -83,7 +84,9 @@ def similarity_search_sync(embedding: list[float], limit: int = 10) -> list[dict
 def get_all_products() -> list[dict]:
     with get_cursor() as cur:
         cur.execute("""
-            SELECT p.id, p.name, p.description, p.price, p.image_url, g.screenshots
+            SELECT p.id, p.name, p.description, p.price,
+                   COALESCE(p.image_url, g.header_image) AS image_url,
+                   g.screenshots, g.app_id
             FROM products p
             JOIN games g ON g.id = p.game_id
         """)
@@ -95,8 +98,9 @@ def text_similarity_search(embedding: list[float], limit: int = 10) -> list[dict
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT p.id, p.name, p.description, p.price, p.image_url,
-                   g.screenshots,
+            SELECT p.id, p.name, p.description, p.price,
+                   COALESCE(p.image_url, g.header_image) AS image_url,
+                   g.screenshots, g.app_id,
                    1 - (p.text_embedding <=> %s::vector) AS similarity
             FROM products p
             JOIN games g ON g.id = p.game_id
