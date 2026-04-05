@@ -505,12 +505,12 @@ function App() {
                                   className="overflow-hidden mb-2"
                                 >
                                   <div className="border border-white/5 rounded-xl p-4 bg-white/[0.02] relative">
-                                    <div className="absolute left-6 top-6 bottom-6 w-px bg-white/5" />
+                                    <div className="absolute left-[23.5px] top-6 bottom-6 w-px bg-white/5" />
                                     <div className="space-y-6 relative">
                                       {msg.thoughts.map((step, i) => (
                                         <div key={i} className="flex gap-4 relative">
-                                          <div className="relative z-10 flex items-start justify-center pt-1.5">
-                                            <div className="h-1.5 w-1.5 rounded-full bg-steam-blue/40 ring-4 ring-background shadow-[0_0_8px_rgba(26,159,255,0.2)]" />
+                                          <div className="w-4 relative z-10 flex items-start justify-center pt-1.5">
+                                            <div className="h-1 w-1 rounded-full bg-steam-blue/50 ring-4 ring-[#0a0e1a] shadow-[0_0_6px_rgba(26,159,255,0.3)]" />
                                           </div>
                                           <div className="flex-1 text-[11px] leading-relaxed">
                                             {step.type === "thought" && (
@@ -557,68 +557,7 @@ function App() {
                         {msg.content && (
                           <div className={`${glass} bg-steam-blue/[0.04] px-4 py-3.5 rounded-2xl border-white/[0.06] w-full`}>
                             <div className="text-[15px] font-medium leading-relaxed text-white/90 text-left [&_p]:my-2 [&_ul]:my-2 [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:pl-5 [&_li]:my-1 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white [&_strong]:font-bold [&_code]:text-steam-blue/90 [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:tracking-normal [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/85 [&_h1]:font-semibold [&_h2]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:tracking-[-0.02em] [&_a]:text-steam-blue/80 [&_a]:underline [&_a]:underline-offset-2">
-                              <ReactMarkdown 
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => {
-                                    if (typeof children === 'string') {
-                                      const parts = children.split(/(:steam[a-z]+:)/g);
-                                      return (
-                                        <p>
-                                          {parts.map((part, i) => {
-                                            if (part.startsWith(':steam') && part.endsWith(':')) {
-                                              const name = part.slice(1, -1);
-                                              return (
-                                                <img
-                                                  key={i}
-                                                  src={`https://community.cloudflare.steamstatic.com/economy/emoticon/${name}`}
-                                                  alt={part}
-                                                  className="inline-block w-5 h-5 align-text-bottom mx-0.5"
-                                                  onError={(e) => {
-                                                    (e.target as HTMLImageElement).style.display = 'none';
-                                                  }}
-                                                />
-                                              );
-                                            }
-                                            return part;
-                                          })}
-                                        </p>
-                                      );
-                                    }
-                                    return <p>{children}</p>;
-                                  },
-                                  li: ({ children }) => {
-                                    // Handle emoticons in list items too
-                                    const renderContent = (content: any): any => {
-                                      if (typeof content === 'string') {
-                                        const parts = content.split(/(:steam[a-z]+:)/g);
-                                        return parts.map((part, i) => {
-                                          if (part.startsWith(':steam') && part.endsWith(':')) {
-                                            const name = part.slice(1, -1);
-                                            return (
-                                              <img
-                                                key={i}
-                                                src={`https://community.cloudflare.steamstatic.com/economy/emoticon/${name}`}
-                                                alt={part}
-                                                className="inline-block w-5 h-5 align-text-bottom mx-0.5"
-                                                onError={(e) => {
-                                                  (e.target as HTMLImageElement).style.display = 'none';
-                                                }}
-                                              />
-                                            );
-                                          }
-                                          return part;
-                                        });
-                                      }
-                                      if (Array.isArray(content)) return content.map(renderContent);
-                                      return content;
-                                    };
-                                    return <li>{renderContent(children)}</li>;
-                                  }
-                                }}
-                              >
-                                {msg.content}
-                              </ReactMarkdown>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                               {msg.status === 'streaming' && (
                                 <motion.span
                                   className="inline-block w-[2px] h-[14px] bg-white/40 rounded-full ml-0.5 align-middle"
