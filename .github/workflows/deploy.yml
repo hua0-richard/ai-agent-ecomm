@@ -16,7 +16,7 @@ jobs:
           username: root
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
-            cd app
+            cd ai-agent-ecomm
             git pull origin main
             docker compose up -d --build
             docker image prune -f
