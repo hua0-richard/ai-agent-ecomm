@@ -31,6 +31,12 @@ class ProductSearchTool(BaseTool):
     args_schema: type[BaseModel] = _Input
 
     def _run(self, query: str) -> str:
+        return self._search(query)
+
+    async def _arun(self, query: str) -> str:
+        return self._search(query)
+
+    def _search(self, query: str) -> str:
         retriever = build_hybrid_retriever()
         docs = retriever.invoke(query)
         if not docs:
