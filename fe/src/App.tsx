@@ -590,7 +590,7 @@ function App() {
                                   </div>
                                 </div>
                                 {(() => {
-                                  const shots = parseScreenshots(product.screenshots).slice(0, 3);
+                                  const shots = parseScreenshots(product.screenshots).slice(0, msg.results!.length);
                                   return shots.length > 0 ? (
                                     <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
                                       {shots.map((url, si) => (
