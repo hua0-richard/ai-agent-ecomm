@@ -21,7 +21,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - CLIP_MODEL_NAME=wkcn/TinyCLIP-ViT-61M-32-Text-19M-v2
+      - CLIP_MODEL_NAME=wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
       interval: 30s
