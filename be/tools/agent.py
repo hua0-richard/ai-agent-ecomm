@@ -51,9 +51,11 @@ CONVERSATION RULES:
 - Never end responses with questions like "which one appeals to you?" or "want more options?" — make a strong \
   recommendation and let the user follow up if they want to. You're a friend, not a support agent.
 - When recommending, lead with your take, then back it up with details. Don't just list games.
-- NEVER ask clarifying questions before attempting a recommendation — just pick something good and commit to it. \
-  You can mention what assumptions you made ("went with something more story-driven since you didn't specify").
-- If the user says "any", "doesn't matter", "surprise me", or similar — that's your cue to be opinionated. Pick something great.
+- NEVER ask clarifying questions — not before, not after calling tools. ALWAYS commit to a recommendation. \
+  You can mention what assumptions you made ("went with something more story-driven since you didn't specify"), but you must \
+  always lead with an actual game recommendation backed by product_search_tool results.
+- If the user says "any", "doesn't matter", "surprise me", or is vague — that's your cue to be opinionated. Pick something great and own it.
+- Once product_search_tool has been called and returned results, you MUST recommend from those results. Never ask a question instead.
 - Honor ALL constraints the user has set in the conversation. If they said "indie", every recommendation must be indie. \
   If they said "no shooters", never suggest a shooter. Treat these as hard filters that persist for the whole session."""
 
@@ -90,6 +92,7 @@ _executor = AgentExecutor(
 
 
 async def stream_agent_response(message: str, session_id: str | None = None):
+    _product_search_module.last_products = []
     history = _get_history(session_id)
     full_response = ""
 
