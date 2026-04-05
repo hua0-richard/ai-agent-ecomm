@@ -8,6 +8,7 @@ Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers dis
 - **Image search** — upload a screenshot or artwork to find visually similar games (CLIP)
 - **Voice input** — speak your query using Whisper transcription (local in dev, OpenAI API in prod)
 - **Live Steam data** — agent can pull real-time prices, discounts, player counts, and game details from the Steam API
+- **Web search fallback** — uses Tavily to find information on new releases or gaming news missing from the local catalog
 - **Chain-of-thought** — collapsible reasoning panel showing tool calls and agent steps in real time
 - **Game screenshots** — product cards show header image and screenshot thumbnails from the Steam catalog
 - **Deterministic card ordering** — product cards are reordered to match the order games appear in the agent's response
@@ -62,6 +63,12 @@ flowchart LR
         OpenRouter["OpenRouter<br/>(Prod)"]
     end
 
+    subgraph External["External APIs"]
+        direction TB
+        Tavily["Tavily API<br/>(Web Search)"]
+        Steam["Steam API<br/>(Live Data)"]
+    end
+
     L_User_FE["HTTPS / User Actions"]
     L_FE_API["REST API / SSE Streaming"]
     L_API_DB["psycopg2<br/>BM25 + Vector Search"]
@@ -69,6 +76,7 @@ flowchart LR
     L_API_Whisper["HTTP / Audio Transcription"]
     L_API_Ollama["LangChain / Tool Calling"]
     L_API_OR["LangChain / Tool Calling"]
+    L_API_Ext["HTTPS / External Tools"]
 
     User --> L_User_FE --> FE
     FE --> L_FE_API --> API
@@ -77,6 +85,7 @@ flowchart LR
     API --> L_API_Whisper --> Whisper
     API --> L_API_Ollama --> Ollama
     API --> L_API_OR --> OpenRouter
+    API --> L_API_Ext --> External
 
     classDef neutral fill:#111827,stroke:#334155,color:#ffffff;
     classDef react fill:#0d1f38,stroke:#61dafb,color:#ffffff;
@@ -86,6 +95,7 @@ flowchart LR
     classDef pg fill:#0c2340,stroke:#336791,color:#ffffff;
     classDef ollama fill:#2b1b4b,stroke:#f97316,color:#ffffff;
     classDef openrouter fill:#2b1b4b,stroke:#a78bfa,color:#ffffff;
+    classDef external fill:#1e293b,stroke:#94a3b8,color:#ffffff;
     classDef edgeText fill:transparent,stroke:transparent,color:#cbd5f5;
 
     class User neutral;
@@ -96,12 +106,14 @@ flowchart LR
     class DB pg;
     class Ollama ollama;
     class OpenRouter openrouter;
-    class L_User_FE,L_FE_API,L_API_DB,L_API_CLIP,L_API_Whisper,L_API_Ollama,L_API_OR edgeText;
+    class Tavily,Steam external;
+    class L_User_FE,L_FE_API,L_API_DB,L_API_CLIP,L_API_Whisper,L_API_Ollama,L_API_OR,L_API_Ext edgeText;
 
     style Frontend fill:#0a0a0a,stroke:#61dafb,color:#ffffff,stroke-width:1px
     style Backend fill:#001529,stroke:#00c896,color:#ffffff,stroke-width:1px
     style Data fill:#0f172a,stroke:#334155,color:#ffffff,stroke-width:1px
     style LLMLayer fill:#0f172a,stroke:#334155,color:#ffffff,stroke-width:1px
+    style External fill:#0f172a,stroke:#94a3b8,color:#ffffff,stroke-width:1px
 
     linkStyle default stroke:#94a3b8,stroke-width:1.5px
 ```
@@ -122,6 +134,7 @@ flowchart LR
 
 **Agent tools:**
 - `product_search_tool` — hybrid retrieval over the local catalog (always called before any recommendation)
+- `tavily_search_tool` — internet search fallback for missing games or recent gaming news
 - `show_product_cards` — explicitly displays game art and cards in the UI using app_ids (ensures 100% reliability)
 - `steam_game_details_tool` — live price, player count, Metacritic, reviews, and platform info from Steam
 - `steam_price_tool` — current price and active discounts
@@ -190,10 +203,11 @@ Browser mic recording → POST audio to Whisper endpoint (local container in dev
    cp be/.env.example be/.env
    ```
 
-   For production, add your OpenRouter key to `be/.env`:
+   For production, add your API keys to `be/.env`:
 
    ```
    OPENROUTER_API_KEY=sk-or-your-key-here
+   TAVILY_API_KEY=tvly-your-key-here
    ```
 
 4. **Start all services**
