@@ -18,5 +18,5 @@ jobs:
           script: |
             cd ai-agent-ecomm
             git pull origin main
-            docker compose up -d --build
+            docker compose up -d --build --remove-orphans
             docker image prune -f
