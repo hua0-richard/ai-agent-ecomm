@@ -153,7 +153,9 @@ Browser mic recording → POST audio to Whisper endpoint (local container in dev
 ## Key Patterns
 
 - **SSE streaming with token buffering** — tokens are buffered until `product_search_tool` completes, ensuring the UI doesn't start rendering text before product cards are ready
-- **Deterministic card matching** — after the LLM finishes responding, `_match_products_to_response()` finds each product name in the response text, reorders cards to match mention order, and appends unmentioned products as a fallback
+- **Context-Safe State Management** — uses Python's `contextvars` to isolate search results and UI state per request, ensuring that concurrent users never see each other's data even during high-volume streaming.
+- **Deterministic card matching** — after the LLM finishes responding, `_match_products_to_response` finds each product name in the response text, reorders cards to match mention order, and appends unmentioned products as a fallback
+
 - **Tool-first requirement** — the system prompt mandates `product_search_tool` is called before every recommendation; the UI shows no cards if skipped
 - **Environment-driven switching** — `APP_ENV` controls LLM provider (Ollama vs OpenRouter), voice service (local Whisper vs OpenAI API), and database URL with no code branching
 - **In-memory session history** — per-session chat history via `InMemoryChatMessageHistory`, scoped by `session_id` (not persistent across restarts)
@@ -253,7 +255,6 @@ docker compose -f docker-compose.dev.yml down -v
 
 ## Future Improvements
 
-- **Concurrency & State Safety** — Replace the global `last_products` state in `be/tools/product_search.py` with a scoped, session-aware mechanism. This will ensure that simultaneous users don't overwrite each other's search results during the streaming phase.
 - **Handling Partial Search Results** — Relax the agent's "always recommend 3" constraint to "up to 3" to improve reliability when the catalog contains fewer than 3 high-quality matches for a specific query.
 - **Persistent Chat History** — Move from `InMemoryChatMessageHistory` to a database-backed history (e.g., PostgreSQL) to allow users to resume conversations after a backend restart.
 - **Improved Name Matching (Fallback)** — Enhance the fallback regex matching in `_match_products_to_response` to better handle punctuation and word boundaries for cases where the explicit tool call is skipped.
