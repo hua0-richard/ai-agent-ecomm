@@ -90,7 +90,12 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
     async def generate():
         try:
             full_response = ""
-            async for event in stream_agent_response(message, session_id, history_override="I uploaded an image for visual search."):
+            async for event in stream_agent_response(
+                message, 
+                session_id, 
+                history_override="I uploaded an image for visual search.",
+                initial_products=products
+            ):
                 if event.get("type") == "token":
                     full_response += event.get("content", "")
                 yield f"data: {json.dumps(event, default=_default)}\n\n"

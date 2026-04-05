@@ -149,14 +149,22 @@ def _match_products_to_response(products: list[dict], response: str) -> list[dic
     return [p for _, p in mentioned]
 
 
-async def stream_agent_response(message: str, session_id: str | None = None, history_override: str | None = None):
-    # Clear any previous search results in this context
-    _product_search_module.search_results_var.set([])
+async def stream_agent_response(
+    message: str, 
+    session_id: str | None = None, 
+    history_override: str | None = None,
+    initial_products: list[dict] | None = None
+):
+    # Initialize the mutable container in this context. 
+    # Tools will mutate this list to communicate results back.
+    container = list(initial_products) if initial_products else []
+    _product_search_module.search_results_var.set(container)
     history = _get_history(session_id)
     full_response = ""
     product_search_called = False
     token_buffer: list[dict] = []
-    pending_products: list[dict] = []
+    # If we have initial products (from image search), treat them as pending
+    pending_products: list[dict] = list(container)
     explicit_ui_products: list[dict] = []
 
     async for event in _executor.astream_events(

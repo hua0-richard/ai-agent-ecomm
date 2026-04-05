@@ -38,12 +38,17 @@ class ProductSearchTool(BaseTool):
     def _search(self, query: str) -> str:
         retriever = build_hybrid_retriever()
         docs = retriever.invoke(query)
+        
+        # Get the mutable container from the context
+        container = search_results_var.get()
+        container.clear() # Reset for this search
+        
         if not docs:
-            search_results_var.set([])
             return "No matching games found."
 
         results = [doc.metadata for doc in docs]
-        search_results_var.set(results)
+        container.extend(results) # Mutate the list so the parent sees it
+        
         return "\n".join(
             f"[{i+1}] {d['name']} (app_id={d.get('app_id', 'unknown')}, ${d['price']:.2f}): {d.get('description', '')}"
             for i, d in enumerate(results)
