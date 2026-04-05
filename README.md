@@ -3,12 +3,14 @@
 Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers discover games from the Steam catalog using natural language, image search, and voice input.
 
 ## Features
-- **Chat agent** — conversational game recommendations with session memory and streaming responses, always in English
+- **Chat agent** — conversational game recommendations with session memory, streaming responses, and a relaxed gamer persona (always in English)
 - **Text search** — hybrid BM25 + vector search with cross-encoder reranking
 - **Image search** — upload a screenshot or artwork to find visually similar games (CLIP)
 - **Voice input** — speak your query using Whisper transcription (local in dev, OpenAI API in prod)
+- **Live Steam data** — agent can pull real-time prices, discounts, player counts, and game details from the Steam API
 - **Chain-of-thought** — collapsible reasoning panel showing tool calls and agent steps in real time
 - **Game screenshots** — product cards show header image and screenshot thumbnails from the Steam catalog
+- **Deterministic card ordering** — product cards are reordered to match the order games appear in the agent's response
 
 ## Architecture
 
@@ -114,12 +116,19 @@ flowchart LR
 
 **Search pipeline:**
 - Text queries use BM25 (keyword) + sentence-transformer vector search fused via RRF, then reranked by a cross-encoder to top 3
-- Image queries use TinyCLIP to embed the uploaded image and search the `image_embedding` column
+- Image queries use TinyCLIP to embed the uploaded image and search the `image_embedding` column via pgvector cosine distance
 - The chat agent uses LangChain tool calling with session memory, streaming via SSE
+- Product cards are deterministically reordered after the LLM responds, matching the order games are mentioned in the text
+
+**Agent tools:**
+- `product_search_tool` — hybrid retrieval over the local catalog (always called before any recommendation)
+- `steam_game_details_tool` — live price, player count, Metacritic, reviews, and platform info from Steam
+- `steam_price_tool` — current price and active discounts
+- `steam_player_count_tool` — live concurrent player count
 
 **LLM:**
 - Dev: Ollama (local) — defaults to `qwen2.5:7b` (swap via `OLLAMA_MODEL` env var, e.g. `gemma3:27b`)
-- Prod: OpenRouter — defaults to `anthropic/claude-3.5-sonnet` (swap via `OPENROUTER_MODEL`)
+- Prod: OpenRouter — defaults to `anthropic/claude-3.5-haiku` (swap via `OPENROUTER_MODEL`)
 
 ## Prerequisites
 

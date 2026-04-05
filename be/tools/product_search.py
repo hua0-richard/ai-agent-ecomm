@@ -38,8 +38,8 @@ class ProductSearchTool(BaseTool):
 
         last_products = [doc.metadata for doc in docs]
         return "\n".join(
-            f"- {d['name']} (app_id={d.get('app_id', 'unknown')}, ${d['price']:.2f}): {d.get('description', '')}"
-            for d in last_products
+            f"[{i+1}] {d['name']} (app_id={d.get('app_id', 'unknown')}, ${d['price']:.2f}): {d.get('description', '')}"
+            for i, d in enumerate(last_products)
         )
 
 

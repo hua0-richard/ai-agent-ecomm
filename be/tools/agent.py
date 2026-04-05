@@ -58,6 +58,8 @@ CONVERSATION RULES:
   always lead with an actual game recommendation backed by product_search_tool results.
 - If the user says "any", "doesn't matter", "surprise me", or is vague — just pick something good and commit to it.
 - Once product_search_tool has been called and returned results, you MUST recommend from those results. Never ask a question instead.
+- ALWAYS use the EXACT game name as returned by product_search_tool — do not shorten, abbreviate, or rephrase game titles. \
+  The UI matches your text to product cards by name, so even small differences will break the match.
 - Honor ALL constraints the user has set in the conversation. If they said "indie", every recommendation must be indie. \
   If they said "no shooters", never suggest a shooter. Treat these as hard filters that persist for the whole session."""
 
@@ -93,22 +95,44 @@ _executor = AgentExecutor(
 )
 
 
-def _reorder_products_by_response(products: list[dict], response: str) -> list[dict]:
-    """Reorder products to match the order their names appear in the LLM response."""
+def _match_products_to_response(products: list[dict], response: str) -> list[dict]:
+    """Match product cards to the LLM response by name, returning only confirmed matches
+    in the order they appear in the text. Unmentioned products are appended at the end
+    as a fallback so the user still sees cards if the LLM used slightly different names."""
     if not products or not response:
         return products
     response_lower = response.lower()
-    # Find the first position each product name appears in the response
-    ordered = []
+
+    # Build a lookup by app_id for potential future structured matching
+    by_app_id: dict[int, dict] = {}
+    for p in products:
+        aid = p.get("app_id")
+        if aid is not None:
+            by_app_id[int(aid)] = p
+
+    # Try to find each product's name in the response
+    mentioned: list[tuple[int, dict]] = []
+    unmentioned: list[dict] = []
+    matched_ids: set[int] = set()
+
     for p in products:
         name = (p.get("name") or "").lower()
         pos = response_lower.find(name) if name else -1
-        ordered.append((pos, p))
-    # Products mentioned in the response come first (sorted by position),
-    # then any unmentioned products keep their original order
-    mentioned = sorted([(pos, p) for pos, p in ordered if pos >= 0], key=lambda x: x[0])
-    unmentioned = [p for pos, p in ordered if pos < 0]
-    return [p for _, p in mentioned] + unmentioned
+        if pos >= 0:
+            mentioned.append((pos, p))
+            if p.get("app_id") is not None:
+                matched_ids.add(int(p["app_id"]))
+        else:
+            unmentioned.append(p)
+
+    # Sort mentioned products by their position in the response
+    mentioned.sort(key=lambda x: x[0])
+    result = [p for _, p in mentioned]
+
+    # Append unmentioned products at the end as fallback
+    result.extend(unmentioned)
+
+    return result
 
 
 async def stream_agent_response(message: str, session_id: str | None = None):
@@ -164,7 +188,7 @@ async def stream_agent_response(message: str, session_id: str | None = None):
 
     # Emit products reordered to match the LLM's response
     if pending_products:
-        reordered = _reorder_products_by_response(pending_products, full_response)
+        reordered = _match_products_to_response(pending_products, full_response)
         _product_search_module.last_products = reordered
         yield {"type": "products", "products": reordered}
 

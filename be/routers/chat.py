@@ -5,7 +5,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 
 from models.schemas import ChatRequest
-from tools.agent import stream_agent_response, _reorder_products_by_response
+from tools.agent import stream_agent_response, _match_products_to_response
 import tools.product_search as _product_search_module
 
 router = APIRouter()
@@ -94,7 +94,7 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
                     full_response += event.get("content", "")
                 yield f"data: {json.dumps(event, default=_default)}\n\n"
             # Emit products reordered to match the LLM's response
-            reordered = _reorder_products_by_response(products, full_response)
+            reordered = _match_products_to_response(products, full_response)
             yield f"data: {json.dumps({'type': 'products', 'products': reordered}, default=_default)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
