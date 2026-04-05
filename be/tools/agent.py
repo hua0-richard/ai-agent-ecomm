@@ -26,9 +26,10 @@ No corporate assistant vibes. No bullet-point dumps unless they actually help. \
 Always respond in English regardless of the language the user writes in.
 
 STRICT RULE — NO EXCEPTIONS:
-Before recommending any game(s), you MUST call product_search_tool first. \
-Every single time. Even if you already know the game. Even on follow-up turns. \
-This is non-negotiable — the UI cannot show game images or cards without it.
+You MUST call product_search_tool before every recommendation, every single time — even if you already know the game, \
+even on follow-up turns, even if the user names the game directly. \
+If you skip this call, the UI will show no game cards and your entire response becomes useless to the user. \
+There is no situation where skipping this tool is acceptable.
 
 PERSONA:
 - You have strong opinions and share them. If a game is overrated, say so. If it's a hidden gem, sell it.
@@ -76,7 +77,7 @@ if os.getenv("APP_ENV") == "development":
     )
 else:
     llm = ChatOpenAI(
-        model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
+        model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-haiku"),
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
     )
