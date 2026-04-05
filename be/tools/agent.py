@@ -50,7 +50,7 @@ CONVERSATION RULES:
   commentary about searching or tool use. Just respond with the result directly.
 - Never end responses with questions like "which one appeals to you?" or "want more options?" — make a strong \
   recommendation and let the user follow up if they want to. You're a friend, not a support agent.
-- When recommending, lead with your take, then back it up with details. Don't just list games.
+- Always recommend exactly 3 games — no more, no less. Lead with your top pick and why, then back it up with the other two.
 - NEVER ask clarifying questions — not before, not after calling tools. ALWAYS commit to a recommendation. \
   You can mention what assumptions you made ("went with something more story-driven since you didn't specify"), but you must \
   always lead with an actual game recommendation backed by product_search_tool results.
@@ -95,6 +95,8 @@ async def stream_agent_response(message: str, session_id: str | None = None):
     _product_search_module.last_products = []
     history = _get_history(session_id)
     full_response = ""
+    product_search_called = False
+    token_buffer: list[dict] = []
 
     async for event in _executor.astream_events(
         {"input": message, "chat_history": history.messages},
@@ -107,10 +109,18 @@ async def stream_agent_response(message: str, session_id: str | None = None):
 
         elif kind == "on_tool_end":
             tool_name = event.get("name", "")
-            if tool_name == "product_search_tool" and _product_search_module.last_products:
-                display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
-                yield {"type": "tool_result", "content": display}
-                yield {"type": "products", "products": _product_search_module.last_products}
+            if tool_name == "product_search_tool":
+                product_search_called = True
+                if _product_search_module.last_products:
+                    display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
+                    yield {"type": "tool_result", "content": display}
+                    yield {"type": "products", "products": _product_search_module.last_products}
+                else:
+                    yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
+                # Flush any tokens that arrived before the tool fired
+                for buffered in token_buffer:
+                    yield buffered
+                token_buffer = []
             else:
                 yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
 
@@ -119,7 +129,16 @@ async def stream_agent_response(message: str, session_id: str | None = None):
             if not hasattr(chunk, "content") or not chunk.content:
                 continue
             full_response += chunk.content
-            yield {"type": "token", "content": chunk.content}
+            token = {"type": "token", "content": chunk.content}
+            if product_search_called:
+                yield token
+            else:
+                # Buffer until we know product_search has been called
+                token_buffer.append(token)
+
+    # Safety flush: if product_search was never called, release buffered tokens anyway
+    for buffered in token_buffer:
+        yield buffered
 
     history.add_user_message(message)
     history.add_ai_message(full_response)
