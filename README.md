@@ -64,7 +64,7 @@ flowchart LR
 
     L_User_FE["HTTPS / User Actions"]
     L_FE_API["REST API / SSE Streaming"]
-    L_API_DB["SQLAlchemy<br/>BM25 + Vector Search"]
+    L_API_DB["psycopg2<br/>BM25 + Vector Search"]
     L_API_CLIP["HTTP / Image Embedding"]
     L_API_Whisper["HTTP / Audio Transcription"]
     L_API_Ollama["LangChain / Tool Calling"]
@@ -126,9 +126,36 @@ flowchart LR
 - `steam_price_tool` — current price and active discounts
 - `steam_player_count_tool` — live concurrent player count
 
-**LLM:**
-- Dev: Ollama (local) — defaults to `qwen2.5:7b` (swap via `OLLAMA_MODEL` env var, e.g. `gemma3:27b`)
-- Prod: OpenRouter — defaults to `anthropic/claude-3.5-haiku` (swap via `OPENROUTER_MODEL`)
+**Models:**
+
+| Role | Model | Dimensions | Provider |
+|------|-------|------------|----------|
+| LLM (dev) | `qwen2.5:7b` | — | Ollama (local, swap via `OLLAMA_MODEL`) |
+| LLM (prod) | `anthropic/claude-3.5-haiku` | — | OpenRouter (swap via `OPENROUTER_MODEL`) |
+| Text embeddings | `all-MiniLM-L6-v2` | 384 | sentence-transformers |
+| Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` | — | sentence-transformers |
+| Image embeddings | `TinyCLIP-ViT-61M` | 512 | HuggingFace (CLIP service) |
+| Voice (dev) | `tiny.en` | — | Whisper (local container) |
+| Voice (prod) | `whisper-1` | — | OpenAI API |
+
+## Request Flows
+
+**Text chat:**
+User message → LangChain agent calls `product_search_tool` → hybrid retrieval (BM25 0.4 + vector 0.6 weighted via RRF) → cross-encoder reranks top 10 → top 3 returned → LLM streams response via SSE → `_match_products_to_response()` validates and reorders cards by name match against response text → frontend renders cards + streamed text together.
+
+**Image search:**
+Upload → CLIP service embeds image (512-dim) → pgvector cosine distance search → top results formatted as context → LLM streams analysis via SSE → cards reordered to match LLM mention order → frontend renders uploaded image + matched cards + analysis.
+
+**Voice input:**
+Browser mic recording → POST audio to Whisper endpoint (local container in dev, OpenAI API in prod) → transcript populates text input → submitted as a normal chat query.
+
+## Key Patterns
+
+- **SSE streaming with token buffering** — tokens are buffered until `product_search_tool` completes, ensuring the UI doesn't start rendering text before product cards are ready
+- **Deterministic card matching** — after the LLM finishes responding, `_match_products_to_response()` finds each product name in the response text, reorders cards to match mention order, and appends unmentioned products as a fallback
+- **Tool-first requirement** — the system prompt mandates `product_search_tool` is called before every recommendation; the UI shows no cards if skipped
+- **Environment-driven switching** — `APP_ENV` controls LLM provider (Ollama vs OpenRouter), voice service (local Whisper vs OpenAI API), and database URL with no code branching
+- **In-memory session history** — per-session chat history via `InMemoryChatMessageHistory`, scoped by `session_id` (not persistent across restarts)
 
 ## Prerequisites
 

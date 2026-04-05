@@ -11,6 +11,11 @@ from tools.steam_live import steam_price_tool, steam_player_count_tool, steam_ga
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
 
+# Max number of recent messages (user + assistant pairs) to include in context.
+# Keeps the LLM focused on the current query and avoids old game names bleeding
+# into new recommendations.
+MAX_HISTORY_MESSAGES = 4
+
 
 def _get_history(session_id: str | None) -> InMemoryChatMessageHistory:
     if not session_id:
@@ -144,7 +149,7 @@ async def stream_agent_response(message: str, session_id: str | None = None):
     pending_products: list[dict] = []
 
     async for event in _executor.astream_events(
-        {"input": message, "chat_history": history.messages},
+        {"input": message, "chat_history": history.messages[-MAX_HISTORY_MESSAGES:]},
         version="v2",
     ):
         kind = event["event"]
