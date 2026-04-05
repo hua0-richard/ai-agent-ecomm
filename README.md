@@ -2,6 +2,14 @@
 
 Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers discover games from the Steam catalog using natural language, image search, and voice input.
 
+[![Deploy Status](https://custom-icon-badges.demolab.com/github/actions/workflow/status/hua0-richard/ai-agent-ecomm/deploy.yml?style=flat&label=Deploy&logo=github&logoColor=white&labelColor=09090b&cacheSeconds=300)](https://github.com/hua0-richard/ai-agent-ecomm/actions/workflows/deploy.yml)
+[![API Status](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/hua0-richard/ai-agent-ecomm/status/server-status/api.json&style=flat&labelColor=09090b&cacheSeconds=300)](https://github.com/hua0-richard/ai-agent-ecomm/actions/workflows/api-status.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white&labelColor=09090b)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-v19-61dafb?style=flat&logo=react&logoColor=white&labelColor=09090b)](https://react.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat&logo=postgresql&logoColor=white&labelColor=09090b)](https://www.postgresql.org)
+[![OpenRouter](https://img.shields.io/badge/OpenRouter-LLM-a855f7?style=flat&logoColor=white&labelColor=09090b)](https://openrouter.ai)
+[![Steam](https://img.shields.io/badge/Steam-API-171a21?style=flat&logo=steam&logoColor=white&labelColor=09090b)](https://partner.steamgames.com/doc/webapi_overview)
+
 ## Features
 - **Chat agent** — conversational game recommendations with session memory, streaming responses, and a relaxed gamer persona (always in English)
 - **Text search** — hybrid BM25 + vector search with cross-encoder reranking
