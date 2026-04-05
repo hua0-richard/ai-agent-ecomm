@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from models.schemas import ChatRequest
 from tools.agent import stream_agent_response, _match_products_to_response
-import tools.product_search as _product_search_module
+from tools.product_search import request_products
 
 router = APIRouter()
 
@@ -46,8 +46,8 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
-    # Pre-populate last_products so the agent has them in context if needed
-    _product_search_module.last_products = products
+    # Pre-populate request-scoped products so the agent has them in context if needed
+    request_products.set(products)
 
     game_lines = []
     for p in products:

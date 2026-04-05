@@ -1,11 +1,13 @@
+from contextvars import ContextVar
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, field_validator
 
 from retrievers.hybrid import build_hybrid_retriever
 
-# Stores the last product result list so the streaming handler can emit it as SSE.
-# Simple global — safe for single-user/dev. Replace with per-request state for multi-user prod.
-last_products: list[dict] = []
+# Per-request storage for product results. Each async request gets its own copy,
+# so concurrent users never overwrite each other's results.
+request_products: ContextVar[list[dict]] = ContextVar("request_products", default=[])
 
 
 class _Input(BaseModel):
@@ -29,17 +31,17 @@ class ProductSearchTool(BaseTool):
     args_schema: type[BaseModel] = _Input
 
     def _run(self, query: str) -> str:
-        global last_products
         retriever = build_hybrid_retriever()
         docs = retriever.invoke(query)
         if not docs:
-            last_products = []
+            request_products.set([])
             return "No matching games found."
 
-        last_products = [doc.metadata for doc in docs]
+        products = [doc.metadata for doc in docs]
+        request_products.set(products)
         return "\n".join(
             f"[{i+1}] {d['name']} (app_id={d.get('app_id', 'unknown')}, ${d['price']:.2f}): {d.get('description', '')}"
-            for i, d in enumerate(last_products)
+            for i, d in enumerate(products)
         )
 
 

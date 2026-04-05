@@ -5,8 +5,7 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-import tools.product_search as _product_search_module
-from tools.product_search import product_search_tool
+from tools.product_search import product_search_tool, request_products
 from tools.steam_live import steam_price_tool, steam_player_count_tool, steam_game_details_tool
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
@@ -141,7 +140,7 @@ def _match_products_to_response(products: list[dict], response: str) -> list[dic
 
 
 async def stream_agent_response(message: str, session_id: str | None = None):
-    _product_search_module.last_products = []
+    request_products.set([])
     history = _get_history(session_id)
     full_response = ""
     product_search_called = False
@@ -161,11 +160,12 @@ async def stream_agent_response(message: str, session_id: str | None = None):
             tool_name = event.get("name", "")
             if tool_name == "product_search_tool":
                 product_search_called = True
-                if _product_search_module.last_products:
-                    display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
+                products = request_products.get()
+                if products:
+                    display = "\n".join(d.get("name", "") for d in products)
                     yield {"type": "tool_result", "content": display}
                     # Defer product emission until we have the full response for reordering
-                    pending_products = list(_product_search_module.last_products)
+                    pending_products = list(products)
                 else:
                     yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
                 # Flush any tokens that arrived before the tool fired
@@ -194,7 +194,7 @@ async def stream_agent_response(message: str, session_id: str | None = None):
     # Emit products reordered to match the LLM's response
     if pending_products:
         reordered = _match_products_to_response(pending_products, full_response)
-        _product_search_module.last_products = reordered
+        request_products.set(reordered)
         yield {"type": "products", "products": reordered}
 
     history.add_user_message(message)
