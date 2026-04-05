@@ -13,7 +13,8 @@ app = FastAPI(title="AI E-Commerce Agent", version="0.1.0")
 origins = ["http://localhost:5173"]
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
-    origins.append(frontend_url)
+    for url in frontend_url.split(","):
+        origins.append(url.strip())
 
 app.add_middleware(
     CORSMiddleware,
