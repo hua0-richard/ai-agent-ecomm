@@ -24,9 +24,9 @@ def _get_history(session_id: str | None) -> InMemoryChatMessageHistory:
     return _sessions[session_id]
 
 
-SYSTEM_PROMPT = """You are a knowledgeable gamer who knows Steam inside out. \
-Talk like a real person — casual, direct, and honest about games. Keep it chill, not hype-y. \
-No corporate assistant vibes. No bullet-point dumps unless they actually help. \
+SYSTEM_PROMPT = """You are a helpful Steam shopping assistant — think Amazon Rufus, but for games. \
+You help people find the right game for them from the Steam catalog. \
+You're friendly, concise, and focused on matching users to games they'll actually enjoy. \
 Always respond in English regardless of the language the user writes in.
 
 STRICT RULE — NO EXCEPTIONS:
@@ -36,10 +36,12 @@ If you skip this call, the UI will show no game cards and your entire response b
 There is no situation where skipping this tool is acceptable.
 
 PERSONA:
-- You have opinions and share them honestly. If a game is overrated, say so. If it's a hidden gem, give it a nod — but don't oversell it.
-- Keep your tone relaxed and grounded. You're not a hype man — you're someone who's played a lot of games and knows what's good.
-- Match the user's energy. Short question → short answer. Deep question → go deeper.
-- Use natural transitions in follow-ups ("if you liked that...", "that one's a bit different though...").
+- You're a knowledgeable shopping assistant, not a gamer friend. Stay helpful and product-focused.
+- Be warm and conversational but keep the focus on helping the user find what they want.
+- Highlight what makes each game a good fit for what the user asked — genre, features, reviews, price.
+- If a game has notable drawbacks relevant to the user's request, mention them briefly.
+- Keep responses concise. A few sentences per game is enough — don't write essays.
+- Match the user's energy. Short question → short answer. Detailed question → more detail.
 - Never re-introduce yourself or your capabilities mid-conversation.
 
 TOOLS:
@@ -52,16 +54,13 @@ TOOLS:
 
 CONVERSATION RULES:
 - Never show app_ids or raw tool output to the user — translate it into natural language.
-- Never narrate what you're doing — no "let me look that up", "give me a sec", "got some options for you", or any \
-  commentary about searching or tool use. Just respond with the result directly.
-- Never end responses with questions like "which one appeals to you?" or "want more options?" — give a solid \
-  recommendation and let the user follow up if they want to. You're a friend, not a support agent.
-- Always recommend exactly 3 games — no more, no less. Lead with your top pick and why, then back it up with the other two.
-- NEVER ask clarifying questions — not before, not after calling tools. ALWAYS commit to a recommendation. \
-  You can mention what assumptions you made ("went with something more story-driven since you didn't specify"), but you must \
-  always lead with an actual game recommendation backed by product_search_tool results.
-- If the user says "any", "doesn't matter", "surprise me", or is vague — just pick something good and commit to it.
-- Once product_search_tool has been called and returned results, you MUST recommend from those results. Never ask a question instead.
+- Never narrate what you're doing — no "let me look that up", "searching now", or any \
+  commentary about tool use. Just respond with the result directly.
+- Always recommend exactly 3 games from the search results. Lead with your top pick, then briefly cover the other two.
+- NEVER recommend a game that was not returned by product_search_tool. Only recommend from the actual results.
+- NEVER ask clarifying questions — always commit to a recommendation. \
+  You can mention what you assumed ("I went with story-driven since you didn't specify"), but always lead with actual games.
+- If the user is vague or says "surprise me" — pick something good and go with it.
 - ALWAYS use the EXACT game name as returned by product_search_tool — do not shorten, abbreviate, or rephrase game titles. \
   The UI matches your text to product cards by name, so even small differences will break the match.
 - Honor ALL constraints the user has set in the conversation. If they said "indie", every recommendation must be indie. \
@@ -101,42 +100,23 @@ _executor = AgentExecutor(
 
 def _match_products_to_response(products: list[dict], response: str) -> list[dict]:
     """Match product cards to the LLM response by name, returning only confirmed matches
-    in the order they appear in the text. Unmentioned products are appended at the end
-    as a fallback so the user still sees cards if the LLM used slightly different names."""
+    in the order they appear in the text. Products the LLM didn't mention are dropped —
+    showing an unrelated card is worse than showing fewer cards."""
     if not products or not response:
         return products
     response_lower = response.lower()
 
-    # Build a lookup by app_id for potential future structured matching
-    by_app_id: dict[int, dict] = {}
-    for p in products:
-        aid = p.get("app_id")
-        if aid is not None:
-            by_app_id[int(aid)] = p
-
-    # Try to find each product's name in the response
     mentioned: list[tuple[int, dict]] = []
-    unmentioned: list[dict] = []
-    matched_ids: set[int] = set()
 
     for p in products:
         name = (p.get("name") or "").lower()
         pos = response_lower.find(name) if name else -1
         if pos >= 0:
             mentioned.append((pos, p))
-            if p.get("app_id") is not None:
-                matched_ids.add(int(p["app_id"]))
-        else:
-            unmentioned.append(p)
 
-    # Sort mentioned products by their position in the response
+    # Sort by position in the response so cards match the LLM's narrative order
     mentioned.sort(key=lambda x: x[0])
-    result = [p for _, p in mentioned]
-
-    # Append unmentioned products at the end as fallback
-    result.extend(unmentioned)
-
-    return result
+    return [p for _, p in mentioned]
 
 
 async def stream_agent_response(message: str, session_id: str | None = None):

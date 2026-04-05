@@ -77,10 +77,11 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
 
     game_context = "\n".join(game_lines)
     message = (
-        f"I uploaded an image and a visual similarity search matched it to these {len(game_lines)} games. "
+        f"I uploaded an image and a visual similarity search already matched it to these {len(game_lines)} games. "
         f"These are ordered by visual similarity — the top ones most closely resemble the image I uploaded:\n\n"
         f"{game_context}\n\n"
-        f"Tell me about the ones that stand out — what's the vibe, what genre are they, and which would you actually recommend?"
+        f"DO NOT call product_search_tool — the search is already done. Just tell me about these games using their EXACT names as listed above. "
+        f"Which ones stand out, what's the vibe, and which would you recommend?"
     )
 
     async def generate():
