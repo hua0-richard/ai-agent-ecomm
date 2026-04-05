@@ -9,6 +9,7 @@ import tools.product_search as _product_search_module
 from tools.product_search import product_search_tool
 from tools.ui import show_product_cards_tool
 from tools.steam_live import steam_price_tool, steam_player_count_tool, steam_game_details_tool
+from tools.internet_search import tavily_search_tool
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
 
@@ -60,6 +61,9 @@ PERSONA:
 TOOLS:
 - product_search_tool: find games by genre, vibe, gameplay style, or name. \
   Returns app_ids needed by the Steam tools — never show app_ids to the user.
+- tavily_search_tool: search the internet for information on games that might be \
+  missing from the local database or for general gaming news. \
+  Use this ONLY as a fallback if product_search_tool returns "No matching games found".
 - show_product_cards: display the official game cards (art, price, etc.) in the UI for the user. \
   Call this with the app_ids of your final recommendations.
 - steam_game_details_tool: live price, player count, Metacritic, reviews, platforms. \
@@ -82,6 +86,13 @@ CONVERSATION RULES:
   If they said "no shooters", never suggest a shooter. Treat these as hard filters that persist for the whole session.
 
 FEW-SHOT EXAMPLES:
+
+User: "Tell me about the new game 'Dragon Age: The Veilguard'. Is it on Steam?"
+Action:
+1. Call product_search_tool(query="Dragon Age: The Veilguard") -> Returns "No matching games found."
+2. Call tavily_search_tool(query="Dragon Age The Veilguard Steam release date and info")
+3. Respond to the user using the internet search results.
+Response: "I couldn't find 'Dragon Age: The Veilguard' in my current catalog, but I've looked it up for you! ✨ It's the latest entry in the Dragon Age series and was released recently. It is indeed available on Steam! Since it's a new release, you'll find it has very positive reviews and focuses on deep party-based RPG combat. ⚔️"
 
 User: "What are some popular horror games that are on sale right now?"
 Action: 
@@ -123,7 +134,7 @@ Response: "I've pulled the live data for those three blockbusters! 🎮 🔍
 It looks like **Baldur's Gate 3** is the most active of the bunch right now! 🔥 🏆"
 """
 
-_tools = [product_search_tool, show_product_cards_tool, steam_game_details_tool, steam_price_tool, steam_player_count_tool]
+_tools = [product_search_tool, tavily_search_tool, show_product_cards_tool, steam_game_details_tool, steam_price_tool, steam_player_count_tool]
 
 _prompt = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
