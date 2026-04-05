@@ -68,7 +68,7 @@ def similarity_search_sync(embedding: list[float], limit: int = 10) -> list[dict
             """
             SELECT p.id, p.name, p.description, p.price,
                    COALESCE(p.image_url, g.header_image) AS image_url,
-                   g.screenshots, g.genres, g.tags,
+                   g.screenshots, g.genres, g.tags, g.app_id,
                    1 - (p.image_embedding <=> %s::vector) AS similarity
             FROM products p
             JOIN games g ON g.id = p.game_id

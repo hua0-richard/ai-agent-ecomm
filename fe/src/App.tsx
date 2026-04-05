@@ -33,6 +33,7 @@ interface Product {
   image_url?: string;
   screenshots?: string;
   similarity?: number;
+  app_id?: number;
 }
 
 function parseScreenshots(raw?: string): string[] {

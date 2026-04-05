@@ -92,12 +92,31 @@ _executor = AgentExecutor(
 )
 
 
+def _reorder_products_by_response(products: list[dict], response: str) -> list[dict]:
+    """Reorder products to match the order their names appear in the LLM response."""
+    if not products or not response:
+        return products
+    response_lower = response.lower()
+    # Find the first position each product name appears in the response
+    ordered = []
+    for p in products:
+        name = (p.get("name") or "").lower()
+        pos = response_lower.find(name) if name else -1
+        ordered.append((pos, p))
+    # Products mentioned in the response come first (sorted by position),
+    # then any unmentioned products keep their original order
+    mentioned = sorted([(pos, p) for pos, p in ordered if pos >= 0], key=lambda x: x[0])
+    unmentioned = [p for pos, p in ordered if pos < 0]
+    return [p for _, p in mentioned] + unmentioned
+
+
 async def stream_agent_response(message: str, session_id: str | None = None):
     _product_search_module.last_products = []
     history = _get_history(session_id)
     full_response = ""
     product_search_called = False
     token_buffer: list[dict] = []
+    pending_products: list[dict] = []
 
     async for event in _executor.astream_events(
         {"input": message, "chat_history": history.messages},
@@ -115,7 +134,8 @@ async def stream_agent_response(message: str, session_id: str | None = None):
                 if _product_search_module.last_products:
                     display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
                     yield {"type": "tool_result", "content": display}
-                    yield {"type": "products", "products": _product_search_module.last_products}
+                    # Defer product emission until we have the full response for reordering
+                    pending_products = list(_product_search_module.last_products)
                 else:
                     yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
                 # Flush any tokens that arrived before the tool fired
@@ -140,6 +160,12 @@ async def stream_agent_response(message: str, session_id: str | None = None):
     # Safety flush: if product_search was never called, release buffered tokens anyway
     for buffered in token_buffer:
         yield buffered
+
+    # Emit products reordered to match the LLM's response
+    if pending_products:
+        reordered = _reorder_products_by_response(pending_products, full_response)
+        _product_search_module.last_products = reordered
+        yield {"type": "products", "products": reordered}
 
     history.add_user_message(message)
     history.add_ai_message(full_response)
