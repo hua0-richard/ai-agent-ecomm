@@ -81,7 +81,9 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
         f"I uploaded an image and a visual similarity search already matched it to these {len(game_lines)} games. "
         f"These are ordered by visual similarity — the top ones most closely resemble the image I uploaded:\n\n"
         f"{game_context}\n\n"
-        f"DO NOT call product_search_tool — the search is already done. Just tell me about these games using their EXACT names as listed above. "
+        f"DO NOT call product_search_tool — the search is already done. "
+        f"Instead, you MUST call show_product_cards with the app_ids of the games you want to recommend to show their cards. "
+        f"Just tell me about these games using their EXACT names as listed above. "
         f"Which ones stand out, what's the vibe, and which would you recommend?"
     )
 
@@ -89,15 +91,9 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
         try:
             full_response = ""
             async for event in stream_agent_response(message, session_id, history_override="I uploaded an image for visual search."):
-                # Suppress product emissions from tool calls — we'll emit reordered products at the end
-                if event.get("type") == "products":
-                    continue
                 if event.get("type") == "token":
                     full_response += event.get("content", "")
                 yield f"data: {json.dumps(event, default=_default)}\n\n"
-            # Emit products reordered to match the LLM's response
-            reordered = _match_products_to_response(products, full_response)
-            yield f"data: {json.dumps({'type': 'products', 'products': reordered}, default=_default)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
         finally:

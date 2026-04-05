@@ -249,3 +249,10 @@ docker compose -f docker-compose.dev.yml down
 # Reset everything (deletes all data and volumes)
 docker compose -f docker-compose.dev.yml down -v
 ```
+
+## Future Improvements
+
+- **Robust Game Matching** — Move beyond substring matching to use regex with word boundaries in `_match_products_to_response`. This will prevent partial name matches (e.g., "Elden" matching "Elden Ring") and handle punctuation like colons or exclamation marks more gracefully.
+- **Concurrency & State Safety** — Replace the global `last_products` state in `be/tools/product_search.py` with a scoped, session-aware mechanism. This will ensure that simultaneous users don't overwrite each other's search results during the streaming phase.
+- **Handling Partial Search Results** — Relax the agent's "always recommend 3" constraint to "up to 3" to improve reliability when the catalog contains fewer than 3 high-quality matches for a specific query.
+- **Persistent Chat History** — Move from `InMemoryChatMessageHistory` to a database-backed history (e.g., PostgreSQL) to allow users to resume conversations after a backend restart.

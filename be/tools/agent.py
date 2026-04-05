@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 import tools.product_search as _product_search_module
 from tools.product_search import product_search_tool
+from tools.ui import show_product_cards_tool
 from tools.steam_live import steam_price_tool, steam_player_count_tool, steam_game_details_tool
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
@@ -37,6 +38,10 @@ If you skip this call, the UI will show no game cards and your entire response b
 The ONLY exception is when the user says a visual similarity search has already been done and provides a list of matched games (including their names and app_ids). \
 In that case, DO NOT call product_search_tool — the search is already done, and the results are provided. Just discuss the games provided using their exact names. You can still use other tools (like price or player count) using the app_ids provided in the list.
 
+UI RULE:
+You MUST call show_product_cards with the list of app_ids for the games you are recommending. \
+This is the ONLY way the user will see the game art and prices. Call this tool immediately after you decide which games to recommend.
+
 PERSONA:
 - You're a knowledgeable shopping assistant, not a gamer friend. Stay helpful and product-focused.
 - Be warm and conversational but keep the focus on helping the user find what they want.
@@ -50,6 +55,8 @@ PERSONA:
 TOOLS:
 - product_search_tool: find games by genre, vibe, gameplay style, or name. \
   Returns app_ids needed by the Steam tools — never show app_ids to the user.
+- show_product_cards: display the official game cards (art, price, etc.) in the UI for the user. \
+  Call this with the app_ids of your final recommendations.
 - steam_game_details_tool: live price, player count, Metacritic, reviews, platforms. \
   Use when the user wants the full picture on a specific game.
 - steam_price_tool: current price/discounts only. Use when cost is the specific question.
@@ -60,7 +67,7 @@ CONVERSATION RULES:
 - Never narrate what you're doing — no "let me look that up", "searching now", or any \
   commentary about tool use. Just respond with the result directly.
 - Always recommend exactly 3 games from the search results. Lead with your top pick, then briefly cover the other two.
-- NEVER recommend a game that was not returned by product_search_tool. Only recommend from the actual results.
+- NEVER recommend a game that was not returned by product_search_tool or the visual similarity search.
 - NEVER ask clarifying questions — always commit to a recommendation. \
   You can mention what you assumed ("I went with story-driven since you didn't specify"), but always lead with actual games.
 - If the user is vague or says "surprise me" — pick something good and go with it.
@@ -69,7 +76,7 @@ CONVERSATION RULES:
 - Honor ALL constraints the user has set in the conversation. If they said "indie", every recommendation must be indie. \
   If they said "no shooters", never suggest a shooter. Treat these as hard filters that persist for the whole session."""
 
-_tools = [product_search_tool, steam_game_details_tool, steam_price_tool, steam_player_count_tool]
+_tools = [product_search_tool, show_product_cards_tool, steam_game_details_tool, steam_price_tool, steam_player_count_tool]
 
 _prompt = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
@@ -148,6 +155,7 @@ async def stream_agent_response(message: str, session_id: str | None = None, his
     product_search_called = False
     token_buffer: list[dict] = []
     pending_products: list[dict] = []
+    explicit_ui_products: list[dict] = []
 
     async for event in _executor.astream_events(
         {"input": message, "chat_history": history.messages[-MAX_HISTORY_MESSAGES:]},
@@ -165,7 +173,7 @@ async def stream_agent_response(message: str, session_id: str | None = None, his
                 if _product_search_module.last_products:
                     display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
                     yield {"type": "tool_result", "content": display}
-                    # Defer product emission until we have the full response for reordering
+                    # Keep track of search results for fallback matching
                     pending_products = list(_product_search_module.last_products)
                 else:
                     yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
@@ -173,6 +181,13 @@ async def stream_agent_response(message: str, session_id: str | None = None, his
                 for buffered in token_buffer:
                     yield buffered
                 token_buffer = []
+            elif tool_name == "show_product_cards":
+                # The agent has explicitly chosen which cards to show
+                app_ids = event["data"].get("input", {}).get("app_ids", [])
+                # Use pending_products (from search) or the global last_products to find metadata
+                source = pending_products if pending_products else _product_search_module.last_products
+                explicit_ui_products = [p for p in source if p.get("app_id") in app_ids]
+                yield {"type": "tool_result", "content": f"UI updated to show {len(explicit_ui_products)} cards."}
             else:
                 yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
 
@@ -192,8 +207,14 @@ async def stream_agent_response(message: str, session_id: str | None = None, his
     for buffered in token_buffer:
         yield buffered
 
-    # Emit products reordered to match the LLM's response
-    if pending_products:
+    # Emit products. 
+    # Priority 1: Explicitly chosen by show_product_cards
+    # Priority 2: Fallback to reordering based on names in text
+    if explicit_ui_products:
+        # Reorder explicit ones based on response text just in case, or keep as is
+        reordered = _match_products_to_response(explicit_ui_products, full_response)
+        yield {"type": "products", "products": reordered if reordered else explicit_ui_products}
+    elif pending_products:
         reordered = _match_products_to_response(pending_products, full_response)
         _product_search_module.last_products = reordered
         yield {"type": "products", "products": reordered}
