@@ -504,26 +504,36 @@ function App() {
                                   transition={{ duration: 0.2 }}
                                   className="overflow-hidden mb-2"
                                 >
-                                  <div className="border border-white/5 rounded-xl p-3 space-y-2 bg-white/[0.02]">
-                                    {msg.thoughts.map((step, i) => (
-                                      <div key={i} className="text-[11px] leading-relaxed">
-                                        {step.type === "thought" && (
-                                          <p className="text-white/30 font-mono whitespace-pre-wrap">{step.content}</p>
-                                        )}
-                                        {step.type === "tool_call" && (
-                                          <div className="flex items-start gap-2">
-                                            <Wrench className="h-3 w-3 text-steam-blue/50 mt-0.5 shrink-0" />
-                                            <div>
-                                              <span className="text-steam-blue/60 font-medium">{step.tool}</span>
-                                              {step.input && <p className="text-white/25 mt-0.5">"{step.input}"</p>}
-                                            </div>
+                                  <div className="border border-white/5 rounded-xl p-4 bg-white/[0.02] relative">
+                                    <div className="absolute left-6 top-6 bottom-6 w-px bg-white/5" />
+                                    <div className="space-y-6 relative">
+                                      {msg.thoughts.map((step, i) => (
+                                        <div key={i} className="flex gap-4 relative">
+                                          <div className="relative z-10 flex items-start justify-center pt-1.5">
+                                            <div className="h-1.5 w-1.5 rounded-full bg-steam-blue/40 ring-4 ring-background shadow-[0_0_8px_rgba(26,159,255,0.2)]" />
                                           </div>
-                                        )}
-                                        {step.type === "tool_result" && (
-                                          <p className="text-white/20 font-mono line-clamp-3">{step.content}</p>
-                                        )}
-                                      </div>
-                                    ))}
+                                          <div className="flex-1 text-[11px] leading-relaxed">
+                                            {step.type === "thought" && (
+                                              <p className="text-white/35 font-mono whitespace-pre-wrap">{step.content}</p>
+                                            )}
+                                            {step.type === "tool_call" && (
+                                              <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-2">
+                                                  <Wrench className="h-3 w-3 text-steam-blue/40 shrink-0" />
+                                                  <span className="text-steam-blue/50 font-semibold tracking-wide uppercase text-[9px]">Tool Call: {step.tool}</span>
+                                                </div>
+                                                {step.input && <p className="text-white/40 pl-5 italic">"{step.input}"</p>}
+                                              </div>
+                                            )}
+                                            {step.type === "tool_result" && (
+                                              <div className="pl-5 mt-1">
+                                                <p className="text-white/20 font-mono line-clamp-2 border-l border-white/5 pl-2">{step.content}</p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 </motion.div>
                               )}
@@ -546,8 +556,69 @@ function App() {
 
                         {msg.content && (
                           <div className={`${glass} bg-steam-blue/[0.04] px-4 py-3.5 rounded-2xl border-white/[0.06] w-full`}>
-                            <div className="text-[15px] leading-[1.75] text-white/75 text-left [&_p]:my-2 [&_ul]:my-2 [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:pl-5 [&_li]:my-1 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white/90 [&_strong]:font-semibold [&_code]:text-steam-blue/90 [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:tracking-normal [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/85 [&_h1]:font-semibold [&_h2]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:tracking-[-0.02em] [&_a]:text-steam-blue/80 [&_a]:underline [&_a]:underline-offset-2">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                            <div className="text-[15px] font-medium leading-relaxed text-white/90 text-left [&_p]:my-2 [&_ul]:my-2 [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:pl-5 [&_li]:my-1 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-white [&_strong]:font-bold [&_code]:text-steam-blue/90 [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:tracking-normal [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white/85 [&_h1]:font-semibold [&_h2]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:tracking-[-0.02em] [&_a]:text-steam-blue/80 [&_a]:underline [&_a]:underline-offset-2">
+                              <ReactMarkdown 
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => {
+                                    if (typeof children === 'string') {
+                                      const parts = children.split(/(:steam[a-z]+:)/g);
+                                      return (
+                                        <p>
+                                          {parts.map((part, i) => {
+                                            if (part.startsWith(':steam') && part.endsWith(':')) {
+                                              const name = part.slice(1, -1);
+                                              return (
+                                                <img
+                                                  key={i}
+                                                  src={`https://community.cloudflare.steamstatic.com/economy/emoticon/${name}`}
+                                                  alt={part}
+                                                  className="inline-block w-5 h-5 align-text-bottom mx-0.5"
+                                                  onError={(e) => {
+                                                    (e.target as HTMLImageElement).style.display = 'none';
+                                                  }}
+                                                />
+                                              );
+                                            }
+                                            return part;
+                                          })}
+                                        </p>
+                                      );
+                                    }
+                                    return <p>{children}</p>;
+                                  },
+                                  li: ({ children }) => {
+                                    // Handle emoticons in list items too
+                                    const renderContent = (content: any): any => {
+                                      if (typeof content === 'string') {
+                                        const parts = content.split(/(:steam[a-z]+:)/g);
+                                        return parts.map((part, i) => {
+                                          if (part.startsWith(':steam') && part.endsWith(':')) {
+                                            const name = part.slice(1, -1);
+                                            return (
+                                              <img
+                                                key={i}
+                                                src={`https://community.cloudflare.steamstatic.com/economy/emoticon/${name}`}
+                                                alt={part}
+                                                className="inline-block w-5 h-5 align-text-bottom mx-0.5"
+                                                onError={(e) => {
+                                                  (e.target as HTMLImageElement).style.display = 'none';
+                                                }}
+                                              />
+                                            );
+                                          }
+                                          return part;
+                                        });
+                                      }
+                                      if (Array.isArray(content)) return content.map(renderContent);
+                                      return content;
+                                    };
+                                    return <li>{renderContent(children)}</li>;
+                                  }
+                                }}
+                              >
+                                {msg.content}
+                              </ReactMarkdown>
                               {msg.status === 'streaming' && (
                                 <motion.span
                                   className="inline-block w-[2px] h-[14px] bg-white/40 rounded-full ml-0.5 align-middle"
