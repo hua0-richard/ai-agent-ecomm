@@ -5,7 +5,8 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tools.product_search import product_search_tool, request_products
+import tools.product_search as _product_search_module
+from tools.product_search import product_search_tool
 from tools.steam_live import steam_price_tool, steam_player_count_tool, steam_game_details_tool
 
 _sessions: dict[str, InMemoryChatMessageHistory] = {}
@@ -29,11 +30,12 @@ You help people find the right game for them from the Steam catalog. \
 You're friendly, concise, and focused on matching users to games they'll actually enjoy. \
 Always respond in English regardless of the language the user writes in.
 
-STRICT RULE — NO EXCEPTIONS:
+STRICT RULE:
 You MUST call product_search_tool before every recommendation, every single time — even if you already know the game, \
 even on follow-up turns, even if the user names the game directly. \
 If you skip this call, the UI will show no game cards and your entire response becomes useless to the user. \
-There is no situation where skipping this tool is acceptable.
+The ONLY exception is when the user says a visual similarity search has already been done and provides a list of matched games (including their names and app_ids). \
+In that case, DO NOT call product_search_tool — the search is already done, and the results are provided. Just discuss the games provided using their exact names. You can still use other tools (like price or player count) using the app_ids provided in the list.
 
 PERSONA:
 - You're a knowledgeable shopping assistant, not a gamer friend. Stay helpful and product-focused.
@@ -138,8 +140,8 @@ def _match_products_to_response(products: list[dict], response: str) -> list[dic
     return [p for _, p in mentioned]
 
 
-async def stream_agent_response(message: str, session_id: str | None = None):
-    request_products.set([])
+async def stream_agent_response(message: str, session_id: str | None = None, history_override: str | None = None):
+    _product_search_module.last_products = []
     history = _get_history(session_id)
     full_response = ""
     product_search_called = False
@@ -159,12 +161,11 @@ async def stream_agent_response(message: str, session_id: str | None = None):
             tool_name = event.get("name", "")
             if tool_name == "product_search_tool":
                 product_search_called = True
-                products = request_products.get()
-                if products:
-                    display = "\n".join(d.get("name", "") for d in products)
+                if _product_search_module.last_products:
+                    display = "\n".join(d.get("name", "") for d in _product_search_module.last_products)
                     yield {"type": "tool_result", "content": display}
                     # Defer product emission until we have the full response for reordering
-                    pending_products = list(products)
+                    pending_products = list(_product_search_module.last_products)
                 else:
                     yield {"type": "tool_result", "content": str(event["data"].get("output", ""))}
                 # Flush any tokens that arrived before the tool fired
@@ -193,8 +194,8 @@ async def stream_agent_response(message: str, session_id: str | None = None):
     # Emit products reordered to match the LLM's response
     if pending_products:
         reordered = _match_products_to_response(pending_products, full_response)
-        request_products.set(reordered)
+        _product_search_module.last_products = reordered
         yield {"type": "products", "products": reordered}
 
-    history.add_user_message(message)
+    history.add_user_message(history_override if history_override is not None else message)
     history.add_ai_message(full_response)

@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from models.schemas import ChatRequest
 from tools.agent import stream_agent_response, _match_products_to_response
-from tools.product_search import request_products
+import tools.product_search as _product_search_module
 
 router = APIRouter()
 
@@ -46,8 +46,8 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
-    # Pre-populate request-scoped products so the agent has them in context if needed
-    request_products.set(products)
+    # Pre-populate last_products so the agent has them in context if needed
+    _product_search_module.last_products = products
 
     game_lines = []
     for p in products:
@@ -69,7 +69,8 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
         tag_list = _parse_list(tags)
         genre_str = ", ".join(genre_list[:3]) if genre_list else "unknown genre"
         tag_str = ", ".join(tag_list[:5]) if tag_list else ""
-        line = f"- {name} (genres: {genre_str}"
+        app_id = p.get("app_id", "unknown")
+        line = f"- {name} (app_id: {app_id}; genres: {genre_str}"
         if tag_str:
             line += f"; tags: {tag_str}"
         line += ")"
@@ -87,7 +88,7 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
     async def generate():
         try:
             full_response = ""
-            async for event in stream_agent_response(message, session_id):
+            async for event in stream_agent_response(message, session_id, history_override="I uploaded an image for visual search."):
                 # Suppress product emissions from tool calls — we'll emit reordered products at the end
                 if event.get("type") == "products":
                     continue
