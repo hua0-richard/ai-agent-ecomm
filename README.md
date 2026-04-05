@@ -153,8 +153,9 @@ Browser mic recording → POST audio to Whisper endpoint (local container in dev
 ## Key Patterns
 
 - **SSE streaming with token buffering** — tokens are buffered until `product_search_tool` completes, ensuring the UI doesn't start rendering text before product cards are ready
-- **Context-Safe State Management** — uses Python's `contextvars` to isolate search results and UI state per request, ensuring that concurrent users never see each other's data even during high-volume streaming.
-- **Deterministic card matching** — after the LLM finishes responding, `_match_products_to_response` finds each product name in the response text, reorders cards to match mention order, and appends unmentioned products as a fallback
+- **Context-Safe State Management** — uses Python's `contextvars` with mutable containers to isolate search results per request. This ensures that concurrent users never see each other's data and that tool results correctly propagate back to the streaming handler.
+- **Initial State Injection** — supports passing pre-computed results (like visual similarity matches) into the agent's context, allowing the `show_product_cards` tool to function reliably even when the search tool is skipped.
+- **Deterministic card matching** — after the LLM finishes responding, `_match_products_to_response` finds each product name in the response text, reorders cards to match mention order, and appends unmentioned products as a fallback.
 
 - **Tool-first requirement** — the system prompt mandates `product_search_tool` is called before every recommendation; the UI shows no cards if skipped
 - **Environment-driven switching** — `APP_ENV` controls LLM provider (Ollama vs OpenRouter), voice service (local Whisper vs OpenAI API), and database URL with no code branching
