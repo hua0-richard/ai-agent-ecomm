@@ -13,6 +13,98 @@ Amazon Rufus, but for Steam. A conversational AI assistant that helps gamers dis
 
 ## Architecture
 
+React frontend talks to a FastAPI backend that routes queries through a hybrid search pipeline (BM25 + pgvector), a TinyCLIP image embedding service, a Whisper speech-to-text service, and a LangChain chat agent backed by Ollama locally or OpenRouter in production.
+
+```mermaid
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0b1020",
+    "mainBkg": "#0b1020",
+    "primaryTextColor": "#ffffff",
+    "textColor": "#ffffff",
+    "labelBackground": "rgba(0,0,0,0)",
+    "edgeLabelBackground": "rgba(0,0,0,0)",
+    "edgeLabelBorder": "rgba(0,0,0,0)",
+    "edgeLabelBorderWidth": "0",
+    "edgeLabelColor": "#ffffff",
+    "lineColor": "#94a3b8",
+    "clusterBkg": "#0b1020",
+    "clusterBorder": "#334155",
+    "clusterLabelColor": "#ffffff"
+  }
+} }%%
+
+flowchart LR
+    User(["User Browser<br/>(Client)"])
+
+    subgraph Frontend["Frontend"]
+        direction TB
+        FE["React + Vite<br/>(Chat / Search / Voice UI)"]
+    end
+
+    subgraph Backend["Docker — Backend"]
+        direction TB
+        API["FastAPI<br/>(Chat, Search, Voice)"]
+        CLIP["CLIP Service<br/>(TinyCLIP Embeddings)"]
+        Whisper["Whisper<br/>(Speech-to-Text)"]
+    end
+
+    subgraph Data["Data"]
+        direction TB
+        DB[("PostgreSQL 16<br/>(pgvector)")]
+    end
+
+    subgraph LLMLayer["LLM"]
+        direction TB
+        Ollama["Ollama<br/>(Local Dev)"]
+        OpenRouter["OpenRouter<br/>(Prod)"]
+    end
+
+    L_User_FE["HTTPS / User Actions"]
+    L_FE_API["REST API / SSE Streaming"]
+    L_API_DB["SQLAlchemy<br/>BM25 + Vector Search"]
+    L_API_CLIP["HTTP / Image Embedding"]
+    L_API_Whisper["HTTP / Audio Transcription"]
+    L_API_Ollama["LangChain / Tool Calling"]
+    L_API_OR["LangChain / Tool Calling"]
+
+    User --> L_User_FE --> FE
+    FE --> L_FE_API --> API
+    API --> L_API_DB --> DB
+    API --> L_API_CLIP --> CLIP
+    API --> L_API_Whisper --> Whisper
+    API --> L_API_Ollama --> Ollama
+    API --> L_API_OR --> OpenRouter
+
+    classDef neutral fill:#111827,stroke:#334155,color:#ffffff;
+    classDef react fill:#0d1f38,stroke:#61dafb,color:#ffffff;
+    classDef fastapi fill:#002b1f,stroke:#00c896,color:#ffffff;
+    classDef clip fill:#1a1a2e,stroke:#a78bfa,color:#ffffff;
+    classDef whisper fill:#1a1a2e,stroke:#a78bfa,color:#ffffff;
+    classDef pg fill:#0c2340,stroke:#336791,color:#ffffff;
+    classDef ollama fill:#2b1b4b,stroke:#f97316,color:#ffffff;
+    classDef openrouter fill:#2b1b4b,stroke:#a78bfa,color:#ffffff;
+    classDef edgeText fill:transparent,stroke:transparent,color:#cbd5f5;
+
+    class User neutral;
+    class FE react;
+    class API fastapi;
+    class CLIP clip;
+    class Whisper whisper;
+    class DB pg;
+    class Ollama ollama;
+    class OpenRouter openrouter;
+    class L_User_FE,L_FE_API,L_API_DB,L_API_CLIP,L_API_Whisper,L_API_Ollama,L_API_OR edgeText;
+
+    style Frontend fill:#0a0a0a,stroke:#61dafb,color:#ffffff,stroke-width:1px
+    style Backend fill:#001529,stroke:#00c896,color:#ffffff,stroke-width:1px
+    style Data fill:#0f172a,stroke:#334155,color:#ffffff,stroke-width:1px
+    style LLMLayer fill:#0f172a,stroke:#334155,color:#ffffff,stroke-width:1px
+
+    linkStyle default stroke:#94a3b8,stroke-width:1.5px
+```
+
 | Service | Port | Description |
 |---------|------|-------------|
 | **fe** | 5173 | React + Vite + TypeScript frontend |

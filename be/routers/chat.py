@@ -49,10 +49,38 @@ async def chat_image(file: UploadFile = File(...), session_id: str = Form(None))
     # Pre-populate last_products so the agent has them in context if needed
     _product_search_module.last_products = products
 
-    game_names = ", ".join(p.get("name", "") for p in products if p.get("name"))
+    game_lines = []
+    for p in products:
+        name = p.get("name", "")
+        if not name:
+            continue
+        genres = p.get("genres") or ""
+        tags = p.get("tags") or ""
+        def _parse_list(raw: str) -> list[str]:
+            if not raw:
+                return []
+            try:
+                parsed = json.loads(raw)
+                return [str(x) for x in parsed] if isinstance(parsed, list) else [str(parsed)]
+            except Exception:
+                return [x.strip() for x in raw.split(",") if x.strip()]
+
+        genre_list = _parse_list(genres)
+        tag_list = _parse_list(tags)
+        genre_str = ", ".join(genre_list[:3]) if genre_list else "unknown genre"
+        tag_str = ", ".join(tag_list[:5]) if tag_list else ""
+        line = f"- {name} (genres: {genre_str}"
+        if tag_str:
+            line += f"; tags: {tag_str}"
+        line += ")"
+        game_lines.append(line)
+
+    game_context = "\n".join(game_lines)
     message = (
-        f"I uploaded an image and a visual similarity search returned these games: {game_names}. "
-        f"Tell me about them — what makes each one worth playing, and which would you actually recommend?"
+        f"I uploaded an image and a visual similarity search matched it to these {len(game_lines)} games. "
+        f"These are ordered by visual similarity — the top ones most closely resemble the image I uploaded:\n\n"
+        f"{game_context}\n\n"
+        f"Tell me about the ones that stand out — what's the vibe, what genre are they, and which would you actually recommend?"
     )
 
     async def generate():
