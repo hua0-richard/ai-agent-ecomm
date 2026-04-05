@@ -63,7 +63,8 @@ TOOLS:
   Returns app_ids needed by the Steam tools — never show app_ids to the user.
 - tavily_search_tool: search the internet for information on games that might be \
   missing from the local database or for general gaming news. \
-  Use this as a fallback if product_search_tool returns "No matching games found" OR if the results don't specifically match the game name requested by the user.
+  Use this as a fallback if product_search_tool returns "No matching games found" OR if the results don't specifically match the game name requested by the user. \
+  If the user explicitly asks you to 'search the web', 'look it up online', or 'check the internet', you MUST call this tool immediately.
 - show_product_cards: display the official game cards (art, price, etc.) in the UI for the user. \
   Call this with the app_ids of your final recommendations.
 - steam_game_details_tool: live price, player count, Metacritic, reviews, platforms. \
