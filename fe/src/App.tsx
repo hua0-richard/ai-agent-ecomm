@@ -98,6 +98,13 @@ function App() {
 
   const prompts = EXAMPLE_PROMPTS[promptSet % EXAMPLE_PROMPTS.length];
 
+  // Ping backend on mount to trigger cold start/warmup
+  useEffect(() => {
+    fetch(`${API_URL}/health`).catch(() => {
+      // Ignore errors; we're just triggering the cold start
+    });
+  }, []);
+
   // Auto-scroll to bottom unless user has scrolled up
   useEffect(() => {
     if (!userScrolledUp.current) {
@@ -121,6 +128,11 @@ function App() {
     const el = e.target;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }
+
+  function handleFocus() {
+    // Proactively warm up the backend when the user starts typing
+    fetch(`${API_URL}/health`).catch(() => {});
   }
 
   function handleImageClick() {
@@ -172,6 +184,9 @@ function App() {
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             const payload = JSON.parse(line.slice(6));
+            if (payload.type === "wait" || payload.type === "heartbeat") {
+              continue; // Skip keep-alives
+            }
             if (payload.type === "done") {
               setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, status: "ready" } : m));
             } else if (payload.type === "token") {
@@ -639,7 +654,11 @@ function App() {
               <textarea
                 ref={textareaRef}
                 value={query}
-                onChange={handleTextareaInput}
+                onChange={(e) => {
+                  handleTextareaInput(e);
+                  handleFocus();
+                }}
+                onFocus={handleFocus}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSearch())}
                 placeholder="Describe your ideal game..."
                 rows={1}

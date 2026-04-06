@@ -5,6 +5,7 @@ from langchain.retrievers import EnsembleRetriever
 from sentence_transformers import CrossEncoder, SentenceTransformer
 
 from db.vectors import get_all_products, text_similarity_search
+from embeddings.clip import get_text_embedding
 
 _bm25: BM25Retriever | None = None
 _cross_encoder: CrossEncoder | None = None
@@ -38,6 +39,23 @@ def _get_cross_encoder() -> CrossEncoder:
     if _cross_encoder is None:
         _cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
     return _cross_encoder
+
+
+def warmup():
+    """Pre-initialize the retrievers and models to avoid cold-start delays."""
+    print("Pre-warming retrievers and models...")
+    _get_bm25(k=10)
+    _get_text_model()
+    _get_cross_encoder()
+    
+    # Also ping the CLIP service
+    try:
+        print("Pinging CLIP service...")
+        get_text_embedding("warmup")
+    except Exception as e:
+        print(f"CLIP service warmup failed: {e}")
+        
+    print("Warmup complete.")
 
 
 def _rerank(query: str, docs: list[Document], top_n: int) -> list[Document]:

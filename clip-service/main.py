@@ -1,13 +1,12 @@
 import io
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 import torch
 from fastapi import FastAPI, UploadFile, File, Query
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
-
-app = FastAPI(title="CLIP Embedding Service")
 
 MODEL_NAME = os.getenv("CLIP_MODEL_NAME", "wkcn/TinyCLIP-ViT-61M-32-Text-29M-LAION400M")
 
@@ -18,6 +17,14 @@ def _load_model():
     processor = CLIPProcessor.from_pretrained(MODEL_NAME)
     print("Model loaded.")
     return model, processor
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-warm the model on startup
+    _load_model()
+    yield
+
+app = FastAPI(title="CLIP Embedding Service", lifespan=lifespan)
 
 @app.get("/health")
 async def health():

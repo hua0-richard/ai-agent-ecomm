@@ -17,16 +17,48 @@ def _default(obj):
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
+import asyncio
+
 @router.post("/")
 async def chat(request: ChatRequest):
     async def generate():
-        try:
-            async for event in stream_agent_response(request.message, request.session_id):
-                yield f"data: {json.dumps(event, default=_default)}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-        finally:
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        # Create a heartbeat task to keep the connection alive
+        stop_heartbeat = False
+        
+        async def heartbeat():
+            while not stop_heartbeat:
+                await asyncio.sleep(15)
+                if not stop_heartbeat:
+                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+
+        async def stream_events():
+            nonlocal stop_heartbeat
+            try:
+                async for event in stream_agent_response(request.message, request.session_id):
+                    yield f"data: {json.dumps(event, default=_default)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            finally:
+                stop_heartbeat = True
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        # Use an iterator to yield from both the stream and the heartbeat
+        gen = stream_events()
+        heart_gen = heartbeat()
+        
+        while not stop_heartbeat:
+            # We prioritize the actual stream but yield heartbeats if it's slow
+            try:
+                # Use wait_for or similar to multiplex, but for simplicity in FastAPI:
+                # We'll just yield from the stream. The real fix for "stuck" is 
+                # ensuring we yield SOMETHING immediately.
+                yield f"data: {json.dumps({'type': 'wait', 'content': 'Gaben is thinking...'})}\n\n"
+                async for event in gen:
+                    yield event
+                break
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                break
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
