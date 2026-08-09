@@ -93,40 +93,45 @@
   --line: rgba(255, 247, 235, 0.1);
   --line-strong: rgba(255, 247, 235, 0.16);
 
-  --primary: #4db5ff;
-  --primary-foreground: #10161c;
+  --primary: var(--accent-cyan);
+  --primary-foreground: #0f1416;
   --secondary: var(--surface-2);
   --secondary-foreground: var(--ink);
   --muted: var(--surface-2);
   --muted-foreground: var(--ink-subtle);
-  --accent: #4db5ff;
-  --accent-foreground: #10161c;
+  --accent: var(--accent-cyan);
+  --accent-foreground: #0f1416;
   --destructive: #e5644d;
   --border: var(--line);
   --input: var(--line);
-  --ring: #4db5ff;
-  /* Steam's brand gradient endpoints, plus the classic link blue */
-  --steam-cyan: #35c3ff;
-  --steam-indigo: #3d7dff;
-  --steam-blue: #6cc0ff;
-  --steam-blue-hover: #9bd6ff;
+  --ring: var(--accent-cyan);
+
+  /* Accent — a cyan-leaning blue. Reads as Steam next to the warm neutrals
+     without the cold navy cast the old #1a9fff had. 9.3:1 on --background. */
+  --accent-cyan: #5ccbe6;
+  --accent-cyan-deep: #35a8dd;
+  --accent-cyan-hover: #8fdcef;
+  --steam-cyan: var(--accent-cyan);
+  --steam-indigo: var(--accent-cyan-deep);
+  --steam-blue: var(--accent-cyan);
+  --steam-blue-hover: var(--accent-cyan-hover);
   --steam-green: #a4d007;
   /* Warm secondary, used sparingly for small highlights */
   --clay: #d9825c;
-  --chart-1: #6cc0ff;
-  --chart-2: #35c3ff;
+  --chart-1: var(--accent-cyan);
+  --chart-2: var(--accent-cyan-deep);
   --chart-3: #d9825c;
   --chart-4: #e5644d;
   --chart-5: var(--ink-subtle);
   --radius: 0.5rem;
   --sidebar: #141413;
   --sidebar-foreground: var(--ink);
-  --sidebar-primary: #4db5ff;
-  --sidebar-primary-foreground: #10161c;
+  --sidebar-primary: var(--accent-cyan);
+  --sidebar-primary-foreground: #0f1416;
   --sidebar-accent: var(--surface-2);
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--line);
-  --sidebar-ring: #4db5ff;
+  --sidebar-ring: var(--accent-cyan);
 }
 
 /* Noise texture overlay */
@@ -188,9 +193,10 @@ body::before {
 
 /* Primary action — Steam's brand gradient, flat (no gloss) */
 .cta-frosted {
-  background: linear-gradient(135deg, var(--steam-cyan) 0%, var(--steam-indigo) 100%);
-  border: 1px solid rgba(160, 205, 255, 0.22);
-  color: #ffffff;
+  background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-cyan-deep) 100%);
+  border: 1px solid rgba(180, 235, 250, 0.25);
+  /* Near-black on cyan clears 6.9:1 even at the darkest end of the gradient */
+  color: #0f1416;
   font-weight: 500;
   letter-spacing: -0.01em;
   transition: filter 0.15s ease, border-color 0.15s ease;
@@ -198,7 +204,7 @@ body::before {
 
 .cta-frosted:hover {
   filter: brightness(1.12);
-  border-color: rgba(190, 225, 255, 0.35);
+  border-color: rgba(200, 242, 253, 0.4);
 }
 
 .cta-frosted:active {
@@ -214,6 +220,27 @@ body::before {
   animation: caret-blink 1s steps(1, end) infinite;
 }
 
+/* "Thinking" label — a highlight sweeps across the text while the agent reasons */
+@keyframes shimmer-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+.shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--ink-subtle) 0%,
+    var(--ink-subtle) 38%,
+    var(--ink) 50%,
+    var(--ink-subtle) 62%,
+    var(--ink-subtle) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-sweep 2.2s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -222,6 +249,11 @@ body::before {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  /* The sweep carries the meaning here, so fall back to a plain readable label */
+  .shimmer {
+    background: none;
+    color: var(--ink-muted);
   }
 }
 

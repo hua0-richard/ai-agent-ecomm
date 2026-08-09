@@ -66,6 +66,25 @@ interface ChatMessage {
   status?: "searching" | "streaming" | "ready" | "error";
   thoughts?: ThoughtStep[];
   results?: Product[];
+  /* Reasoning clock: set when the agent turn starts, frozen once it answers */
+  startedAt?: number;
+  thoughtMs?: number;
+}
+
+/** Freeze the reasoning duration the first time the agent produces output. */
+function stopThoughtClock(m: ChatMessage): ChatMessage {
+  if (m.thoughtMs != null || m.startedAt == null) return m;
+  return { ...m, thoughtMs: Date.now() - m.startedAt };
+}
+
+function formatThoughtTime(ms: number): string {
+  const s = ms / 1000;
+  return s < 10 ? `${s.toFixed(1)}s` : `${Math.round(s)}s`;
+}
+
+/** Still reasoning: steps have arrived but no answer text yet. */
+function isThinking(m: ChatMessage): boolean {
+  return m.thoughtMs == null && m.status !== "ready" && m.status !== "error";
 }
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -143,7 +162,7 @@ function App() {
       setIsSearching(true);
 
       await new Promise(r => setTimeout(r, 300));
-      setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching" }]);
+      setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching", startedAt: Date.now() }]);
 
       const formData = new FormData();
       formData.append("file", file);
@@ -177,10 +196,10 @@ function App() {
               continue; // Skip keep-alives
             }
             if (payload.type === "done") {
-              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, status: "ready" } : m));
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...stopThoughtClock(m), status: "ready" } : m));
             } else if (payload.type === "token") {
               fullContent += payload.content;
-              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, content: fullContent, status: "streaming" } : m));
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...stopThoughtClock(m), content: fullContent, status: "streaming" } : m));
             } else if (payload.type === "products") {
               setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, results: payload.products } : m));
             } else if (payload.type === "tool_call") {
@@ -188,7 +207,7 @@ function App() {
             } else if (payload.type === "tool_result") {
               setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, thoughts: [...(m.thoughts ?? []), { type: "tool_result", content: payload.content }] } : m));
             } else if (payload.type === "error") {
-              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...m, content: "Sorry, I had trouble processing that image. Please try again.", status: "error" } : m));
+              setMessages(prev => prev.map(m => m.id === agentMsgId ? { ...stopThoughtClock(m), content: "Sorry, I had trouble processing that image. Please try again.", status: "error" } : m));
             }
           }
         }
@@ -219,7 +238,7 @@ function App() {
     setIsSearching(true);
 
     await new Promise(r => setTimeout(r, 300));
-    setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching" }]);
+    setMessages(prev => [...prev, { id: agentMsgId, sender: "agent", content: "", status: "searching", startedAt: Date.now() }]);
 
     try {
       const response = await fetch(`${API_URL}/api/chat/`, {
@@ -248,12 +267,12 @@ function App() {
           const payload = JSON.parse(line.slice(6));
           if (payload.type === "done") {
             setMessages(prev => prev.map(m =>
-              m.id === agentMsgId ? { ...m, status: "ready" } : m
+              m.id === agentMsgId ? { ...stopThoughtClock(m), status: "ready" } : m
             ));
           } else if (payload.type === "token") {
             fullContent += payload.content;
             setMessages(prev => prev.map(m =>
-              m.id === agentMsgId ? { ...m, content: fullContent, status: "streaming" } : m
+              m.id === agentMsgId ? { ...stopThoughtClock(m), content: fullContent, status: "streaming" } : m
             ));
           } else if (payload.type === "thought") {
             setMessages(prev => prev.map(m =>
@@ -282,7 +301,7 @@ function App() {
           } else if (payload.type === "error") {
             setMessages(prev => prev.map(m =>
               m.id === agentMsgId
-                ? { ...m, content: "Something went wrong. Please try again.", status: "error" }
+                ? { ...stopThoughtClock(m), content: "Something went wrong. Please try again.", status: "error" }
                 : m
             ));
           }
@@ -362,7 +381,7 @@ function App() {
 
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col items-center selection:bg-steam-blue/25 selection:text-white overflow-hidden bg-background">
+    <div className="h-[100dvh] w-full flex flex-col items-center selection:bg-accent/25 selection:text-white overflow-hidden bg-background">
       <div
           className={`max-w-[680px] w-full px-4 sm:px-6 relative flex flex-col h-full ${view === 'chat' ? 'justify-end py-6' : 'justify-center pt-8 pb-[6vh]'}`}
         >
@@ -398,7 +417,8 @@ function App() {
                     ) : (
                       <div className="flex flex-col items-start gap-1.5 w-full">
 
-                        {/* Collapsible chain-of-thought */}
+                        {/* Reasoning trace — collapsed to a single status line, expands
+                            into a plain left-ruled column rather than a boxed timeline */}
                         {msg.thoughts && msg.thoughts.length > 0 && (
                           <div className="w-full">
                             <button
@@ -408,10 +428,18 @@ function App() {
                                 else next.add(msg.id);
                                 return next;
                               })}
-                              className="flex items-center gap-1.5 text-[10px] text-ink-faint hover:text-ink-muted transition-colors mb-1.5 cursor-pointer tracking-wide"
+                              className="group flex items-center gap-1.5 text-[12.5px] text-ink-subtle hover:text-ink-muted transition-colors mb-1.5 cursor-pointer"
                             >
-                              <ChevronDown className={`h-3 w-3 transition-transform duration-150 ${expandedThoughts.has(msg.id) ? "" : "-rotate-90"}`} />
-                              View reasoning
+                              {isThinking(msg) ? (
+                                <span className="shimmer font-medium">Thinking</span>
+                              ) : (
+                                <span className="font-medium">
+                                  {msg.thoughtMs != null
+                                    ? `Thought for ${formatThoughtTime(msg.thoughtMs)}`
+                                    : "Reasoning"}
+                                </span>
+                              )}
+                              <ChevronDown className={`h-3.5 w-3.5 text-ink-faint group-hover:text-ink-subtle transition-transform duration-150 ${expandedThoughts.has(msg.id) ? "" : "-rotate-90"}`} />
                             </button>
                             <AnimatePresence>
                               {expandedThoughts.has(msg.id) && (
@@ -420,38 +448,28 @@ function App() {
                                   animate={{ height: "auto", opacity: 1 }}
                                   exit={{ height: 0, opacity: 0 }}
                                   transition={{ duration: 0.16, ease }}
-                                  className="overflow-hidden mb-2"
+                                  className="overflow-hidden mb-3"
                                 >
-                                  <div className="border border-line rounded-lg p-3.5 bg-surface relative">
-                                    <div className="absolute left-[21px] top-5 bottom-5 w-px bg-line" />
-                                    <div className="space-y-4 relative">
-                                      {msg.thoughts.map((step, i) => (
-                                        <div key={i} className="flex gap-4 relative">
-                                          <div className="w-4 relative z-10 flex items-start justify-center pt-1.5">
-                                            <div className="h-1 w-1 rounded-full bg-steam-cyan/60 ring-4 ring-background" />
-                                          </div>
-                                          <div className="flex-1 text-[11px] leading-relaxed">
-                                            {step.type === "thought" && (
-                                              <p className="text-ink-subtle font-mono whitespace-pre-wrap">{step.content}</p>
-                                            )}
-                                            {step.type === "tool_call" && (
-                                              <div className="flex flex-col gap-1">
-                                                <div className="flex items-center gap-2">
-                                                  <Wrench className="h-3 w-3 text-steam-cyan/55 shrink-0" />
-                                                  <span className="text-steam-cyan/65 font-semibold tracking-wide uppercase text-[9px]">Tool Call: {step.tool}</span>
-                                                </div>
-                                                {step.input && <p className="text-ink-subtle pl-5 italic">"{step.input}"</p>}
-                                              </div>
-                                            )}
-                                            {step.type === "tool_result" && (
-                                              <div className="pl-5 mt-1">
-                                                <p className="text-ink-faint font-mono line-clamp-2 border-l border-line pl-2">{step.content}</p>
-                                              </div>
+                                  <div className="border-l border-line pl-4 ml-[3px] py-1 space-y-3">
+                                    {msg.thoughts.map((step, i) => (
+                                      <div key={i} className="text-[12.5px] leading-[1.65]">
+                                        {step.type === "thought" && (
+                                          <p className="text-ink-subtle whitespace-pre-wrap">{step.content}</p>
+                                        )}
+                                        {step.type === "tool_call" && (
+                                          <div className="flex items-baseline gap-1.5 flex-wrap">
+                                            <Wrench className="h-3 w-3 text-accent shrink-0 self-center" />
+                                            <span className="text-ink-muted font-medium">{step.tool}</span>
+                                            {step.input && (
+                                              <span className="text-ink-faint truncate max-w-full">{step.input}</span>
                                             )}
                                           </div>
-                                        </div>
-                                      ))}
-                                    </div>
+                                        )}
+                                        {step.type === "tool_result" && (
+                                          <p className="text-ink-faint line-clamp-2">{step.content}</p>
+                                        )}
+                                      </div>
+                                    ))}
                                   </div>
                                 </motion.div>
                               )}
@@ -459,7 +477,7 @@ function App() {
                           </div>
                         )}
 
-                        {msg.status === 'searching' && !msg.content && (
+                        {msg.status === 'searching' && !msg.content && !msg.thoughts?.length && (
                           <div className="flex items-center gap-1.5 px-1 pt-1 pb-0.5">
                             {[0, 1, 2].map((i) => (
                               <motion.span
@@ -474,7 +492,7 @@ function App() {
 
                         {msg.content && (
                           <div className="w-full px-1 py-1">
-                            <div className="text-[15px] leading-[1.7] text-ink text-left [&_p]:my-2.5 [&_ul]:my-2.5 [&_ul]:pl-5 [&_ol]:my-2.5 [&_ol]:pl-5 [&_li]:my-1 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-ink [&_strong]:font-semibold [&_code]:text-steam-blue [&_code]:bg-surface-raised [&_code]:px-1.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:tracking-normal [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_h1]:font-semibold [&_h2]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:tracking-[-0.02em] [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4 [&_a]:text-steam-blue [&_a]:underline [&_a]:underline-offset-2">
+                            <div className="text-[15px] leading-[1.7] text-ink text-left [&_p]:my-2.5 [&_ul]:my-2.5 [&_ul]:pl-5 [&_ol]:my-2.5 [&_ol]:pl-5 [&_li]:my-1 [&_li]:list-disc [&_ol_li]:list-decimal [&_strong]:text-ink [&_strong]:font-semibold [&_code]:text-accent [&_code]:bg-surface-raised [&_code]:px-1.5 [&_code]:rounded [&_code]:text-[13px] [&_code]:tracking-normal [&_h1]:text-ink [&_h2]:text-ink [&_h3]:text-ink [&_h1]:font-semibold [&_h2]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:tracking-[-0.02em] [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4 [&_a]:text-accent [&_a]:underline [&_a]:underline-offset-2">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                               {msg.status === 'streaming' && (
                                 <span className="caret-blink inline-block w-[2px] h-[14px] bg-ink-muted ml-0.5 align-middle" />
@@ -504,7 +522,7 @@ function App() {
                                       <p className="text-ink-muted text-[13px] line-clamp-2 mt-1.5 leading-[1.55]">{product.description}</p>
                                     </div>
                                     <div className="flex items-center justify-between mt-2">
-                                      <span className="text-steam-blue font-semibold text-[14px]">${product.price}</span>
+                                      <span className="text-accent font-semibold text-[14px]">${product.price}</span>
                                       {product.similarity && (
                                         <span className="text-[11px] text-clay bg-clay/[0.1] px-2 py-0.5 rounded border border-clay/25">
                                           {Math.round(product.similarity * 100)}% match
@@ -590,7 +608,7 @@ function App() {
                   <Image className="h-4 w-4" />
                 </button>
                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
-                <button onClick={handleVoiceToggle} disabled={isTranscribing} aria-label={voiceActive ? "Stop recording" : "Record voice search"} className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer ${voiceActive ? "text-steam-blue bg-steam-blue/15" : isTranscribing ? "text-ink-faint" : "text-ink-subtle hover:text-ink-muted hover:bg-surface-raised"}`}>
+                <button onClick={handleVoiceToggle} disabled={isTranscribing} aria-label={voiceActive ? "Stop recording" : "Record voice search"} className={`h-8 w-8 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer ${voiceActive ? "text-accent bg-accent/15" : isTranscribing ? "text-ink-faint" : "text-ink-subtle hover:text-ink-muted hover:bg-surface-raised"}`}>
                   <Mic className="h-4 w-4" />
                 </button>
               </div>
@@ -630,7 +648,7 @@ function App() {
                         {[0.9, 1.15, 0.8, 1.05, 0.95].map((dur, i) => (
                           <motion.span
                             key={i}
-                            className="w-[2px] h-full bg-steam-cyan/70 origin-center"
+                            className="w-[2px] h-full bg-accent/70 origin-center"
                             animate={{ scaleY: [0.25, 1, 0.25] }}
                             transition={{ duration: dur, delay: i * 0.08, repeat: Infinity, ease: "easeInOut" }}
                           />
