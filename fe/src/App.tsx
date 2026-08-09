@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, HelpCircle, Mic, Image, ArrowUp, ChevronDown, Wrench, Shuffle } from "lucide-react";
+import { Swords, Gamepad2, Users, Sparkles, TrendingUp, Zap, Search, HelpCircle, Mic, Image, ArrowUp, ChevronDown, Wrench, Globe, Shuffle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -87,6 +87,58 @@ function isThinking(m: ChatMessage): boolean {
   return m.thoughtMs == null && m.status !== "ready" && m.status !== "error";
 }
 
+/* ---- Reasoning trace shaping -------------------------------------------- */
+
+type TraceBlock =
+  | { kind: "thought"; content: string }
+  | { kind: "tool"; tool: string; input?: string; result?: string };
+
+/** A tool call and the result it produced are one unit — pair them up so the
+ *  trace reads as [thought] [action → outcome] rather than three flat rows. */
+function groupTrace(steps: ThoughtStep[]): TraceBlock[] {
+  const blocks: TraceBlock[] = [];
+  for (const step of steps) {
+    if (step.type === "thought") {
+      blocks.push({ kind: "thought", content: step.content ?? "" });
+    } else if (step.type === "tool_call") {
+      blocks.push({ kind: "tool", tool: step.tool ?? "tool", input: step.input });
+    } else {
+      const last = blocks[blocks.length - 1];
+      if (last?.kind === "tool" && last.result == null) last.result = step.content;
+      else blocks.push({ kind: "tool", tool: "result", result: step.content });
+    }
+  }
+  return blocks;
+}
+
+/** search_products -> "Search products" */
+function toolLabel(tool: string): string {
+  const words = tool.replace(/[_-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** One-line summary of the step currently in flight. */
+function latestTraceLabel(steps: ThoughtStep[]): string {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    if (step.type === "tool_call") {
+      return step.input
+        ? `${toolLabel(step.tool ?? "tool")} · ${step.input}`
+        : toolLabel(step.tool ?? "tool");
+    }
+    if (step.type === "thought" && step.content) return step.content;
+  }
+  return "Working";
+}
+
+function toolIcon(tool: string) {
+  const t = tool.toLowerCase();
+  if (t.includes("web") || t.includes("tavily") || t.includes("browse")) return Globe;
+  if (t.includes("image") || t.includes("vision")) return Image;
+  if (t.includes("search") || t.includes("find") || t.includes("product")) return Search;
+  return Wrench;
+}
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 function App() {
@@ -118,11 +170,13 @@ function App() {
     });
   }, []);
 
-  // Auto-scroll to bottom unless user has scrolled up
+  // Auto-scroll to bottom unless user has scrolled up. The first exchange jumps
+  // instantly — a smooth scroll there races the landing→chat layout change.
   useEffect(() => {
-    if (!userScrolledUp.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    if (userScrolledUp.current) return;
+    messagesEndRef.current?.scrollIntoView({
+      behavior: messages.length > 2 ? "smooth" : "auto",
+    });
   }, [messages, isSearching]);
 
   function handleChatScroll() {
@@ -428,7 +482,8 @@ function App() {
                                 else next.add(msg.id);
                                 return next;
                               })}
-                              className="group flex items-center gap-1.5 text-[12.5px] text-ink-subtle hover:text-ink-muted transition-colors mb-1.5 cursor-pointer"
+                              aria-expanded={expandedThoughts.has(msg.id)}
+                              className="group flex items-center gap-1.5 text-[12.5px] text-ink-subtle hover:text-ink-muted transition-colors mb-2 cursor-pointer"
                             >
                               {isThinking(msg) ? (
                                 <span className="shimmer font-medium">Thinking</span>
@@ -439,8 +494,21 @@ function App() {
                                     : "Reasoning"}
                                 </span>
                               )}
+                              <span className="text-ink-faint tabular-nums">
+                                {(() => {
+                                  const n = msg.thoughts.filter(t => t.type === "tool_call").length || msg.thoughts.length;
+                                  return `· ${n} step${n === 1 ? "" : "s"}`;
+                                })()}
+                              </span>
                               <ChevronDown className={`h-3.5 w-3.5 text-ink-faint group-hover:text-ink-subtle transition-transform duration-150 ${expandedThoughts.has(msg.id) ? "" : "-rotate-90"}`} />
                             </button>
+                            {/* While collapsed and still running, surface the current step
+                                on one truncated line so the height never shifts */}
+                            {isThinking(msg) && !expandedThoughts.has(msg.id) && (
+                              <p className="mb-2 pl-[3px] text-[12px] text-ink-faint truncate">
+                                {latestTraceLabel(msg.thoughts)}
+                              </p>
+                            )}
                             <AnimatePresence>
                               {expandedThoughts.has(msg.id) && (
                                 <motion.div
@@ -450,26 +518,38 @@ function App() {
                                   transition={{ duration: 0.16, ease }}
                                   className="overflow-hidden mb-3"
                                 >
-                                  <div className="border-l border-line pl-4 ml-[3px] py-1 space-y-3">
-                                    {msg.thoughts.map((step, i) => (
-                                      <div key={i} className="text-[12.5px] leading-[1.65]">
-                                        {step.type === "thought" && (
-                                          <p className="text-ink-subtle whitespace-pre-wrap">{step.content}</p>
-                                        )}
-                                        {step.type === "tool_call" && (
-                                          <div className="flex items-baseline gap-1.5 flex-wrap">
-                                            <Wrench className="h-3 w-3 text-accent shrink-0 self-center" />
-                                            <span className="text-ink-muted font-medium">{step.tool}</span>
-                                            {step.input && (
-                                              <span className="text-ink-faint truncate max-w-full">{step.input}</span>
+                                  <div className="border-l border-line pl-4 ml-[3px] py-0.5 space-y-3.5">
+                                    {groupTrace(msg.thoughts).map((block, i) =>
+                                      block.kind === "thought" ? (
+                                        <p key={i} className="text-[13px] leading-[1.7] text-ink-subtle whitespace-pre-wrap break-words">
+                                          {block.content}
+                                        </p>
+                                      ) : (
+                                        <div key={i} className="rounded-md border border-line bg-surface px-2.5 py-2">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span className="h-[18px] w-[18px] rounded-[5px] bg-accent/15 flex items-center justify-center shrink-0">
+                                              {(() => {
+                                                const Icon = toolIcon(block.tool);
+                                                return <Icon className="h-[11px] w-[11px] text-accent" strokeWidth={2} />;
+                                              })()}
+                                            </span>
+                                            <span className="text-[12px] font-medium text-ink-muted shrink-0">
+                                              {toolLabel(block.tool)}
+                                            </span>
+                                            {block.input && (
+                                              <span className="text-[12px] text-ink-faint truncate min-w-0" title={block.input}>
+                                                {block.input}
+                                              </span>
                                             )}
                                           </div>
-                                        )}
-                                        {step.type === "tool_result" && (
-                                          <p className="text-ink-faint line-clamp-2">{step.content}</p>
-                                        )}
-                                      </div>
-                                    ))}
+                                          {block.result && (
+                                            <p className="mt-1.5 pl-[26px] text-[11.5px] leading-[1.55] text-ink-faint line-clamp-2 break-words">
+                                              {block.result}
+                                            </p>
+                                          )}
+                                        </div>
+                                      )
+                                    )}
                                   </div>
                                 </motion.div>
                               )}
@@ -559,14 +639,13 @@ function App() {
             </div>
           </div>
 
-          {/* Landing prompt */}
-          <AnimatePresence>
-            {view === "landing" && (
+          {/* Landing prompt. No exit animation on purpose: collapsing its height while
+              it is still in the flex column made the heading reflow and appear to stretch. */}
+          {view === "landing" && (
               <motion.div
                 key="landing-prompt"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: "hidden" }}
                 transition={{ duration: 0.18, ease }}
                 className="shrink-0 mb-5 px-1"
               >
@@ -575,8 +654,7 @@ function App() {
                   What do you want to play?
                 </h1>
               </motion.div>
-            )}
-          </AnimatePresence>
+          )}
 
           {/* Search Container */}
           <div
@@ -662,13 +740,11 @@ function App() {
             )}
           </AnimatePresence>
 
-          <AnimatePresence>
-            {view === "landing" && (
+          {view === "landing" && (
               <motion.div
                 key="landing-footer"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0, height: 0, marginTop: 0, overflow: 'hidden' }}
                 transition={{ duration: 0.18, ease }}
                 className="shrink-0"
               >
@@ -713,8 +789,7 @@ function App() {
                   </AnimatePresence>
                 </div>
               </motion.div>
-            )}
-          </AnimatePresence>
+          )}
       </div>
     </div>
   );
