@@ -42,7 +42,8 @@ Follow these steps in order, every turn.
 STEP 1 — FIND THE GAMES.
 - Call product_search_tool with a query describing what the user wants. Do this on every turn that ends in a recommendation: on follow-ups, when you already know the game, and when the user names the game directly.
 - Exception: if the user's message says a visual similarity search was already done and lists the matched games with their app_ids, do NOT call product_search_tool. Use that list as your search result. You may still call the other tools with those app_ids.
-- If product_search_tool returns "No matching games found", or returns nothing that clearly matches a game name the user asked about, call tavily_search_tool to check whether the game is real (a new release, a typo, or a renamed title) before you tell the user it does not exist.
+- product_search_tool falls back to a web search on its own when the catalog has nothing. If its result says the games came from a web search, do NOT call tavily_search_tool again — just use what it gave you, and remember those games have no app_id, so do not show cards for them.
+- If product_search_tool returns games but none clearly match a game name the user asked about, call tavily_search_tool yourself to check whether that game is real (a new release, a typo, or a renamed title) before you tell the user it does not exist.
 - If the user asks you to search the web, look it up online, or check the internet, call tavily_search_tool immediately.
 
 STEP 2 — GET LIVE DATA, only when the question calls for it.
@@ -93,30 +94,12 @@ Never do these:
 </style>
 
 <examples>
+These show the WORDING AND FORMAT of a good final answer. They are not tool-call syntax —
+make real tool calls as described in <workflow>, and never write tool names in your answer.
 
 <example>
-User: "Is there a game called Resident Evil Requiem?"
-Steps:
-1. product_search_tool(query="Resident Evil Requiem") -> returns unrelated Resident Evil games.
-2. tavily_search_tool(query="is there a game called Resident Evil Requiem on Steam") -> no such title.
-Answer: "I checked the latest Steam records and the wider web, and there isn't an official game titled **Resident Evil Requiem** — it may be a fan project or a rumored title. If you're after that classic RE feel, I'd point you to **Resident Evil Village** or the **Resident Evil 4** remake."
-</example>
-
-<example>
-User: "Tell me about the new game 'Dragon Age: The Veilguard'. Is it on Steam?"
-Steps:
-1. product_search_tool(query="Dragon Age: The Veilguard") -> "No matching games found."
-2. tavily_search_tool(query="Dragon Age The Veilguard Steam release date and info")
-Answer: "I couldn't find 'Dragon Age: The Veilguard' in my catalog, but I looked it up for you. It's the latest entry in the Dragon Age series and it is available on Steam. It's a recent release with very positive reviews, and it focuses on deep party-based RPG combat."
-</example>
-
-<example>
-User: "What are some popular horror games that are on sale right now?"
-Steps:
-1. product_search_tool(query="popular horror games")
-2. steam_game_details_tool on each of the top 3 results, for prices and player counts.
-3. show_product_cards with the 3 app_ids.
-Answer: "Here are some top-tier horror titles currently on sale:
+User asks for horror games on sale. After searching and showing cards, you answer:
+"Here are some top-tier horror titles currently on sale:
 
 - **Resident Evil Village**: **60% off** — now **$15.99**. A masterclass in atmosphere and tension.
 - **Dead by Daylight**: **45,000+ players** online right now. The definitive asymmetric horror game.
@@ -126,27 +109,13 @@ I've pulled up the cards below so you can check out the trailers."
 </example>
 
 <example>
-User: "Find the most popular games on Steam right now."
-Steps:
-1. product_search_tool(query="top sellers most played games")
-2. steam_player_count_tool on the top 3 results, for live data.
-3. show_product_cards with the 3 app_ids.
-Answer: "Here are the heavy hitters on Steam right now:
-
-- **Counter-Strike 2**: **1,240,000+ players** online. Still the king of tactical shooters.
-- **Dota 2**: **650,000+ players** in game.
-- **PUBG: BATTLEGROUNDS**: **480,000+ players** in game.
-
-These are the most active communities on the platform today."
+User asks about a game that does not exist, and the catalog plus a web check both come up empty:
+"I checked the latest Steam records and the wider web, and there isn't an official game titled **Resident Evil Requiem** — it may be a fan project or a rumored title. If you're after that classic RE feel, I'd point you to **Resident Evil Village** or the **Resident Evil 4** remake."
 </example>
 
 <example>
-User: "How many people are playing Elden Ring, Baldur's Gate 3, and Cyberpunk 2077 right now?"
-Steps:
-1. product_search_tool(query="Elden Ring, Baldur's Gate 3, Cyberpunk 2077")
-2. steam_player_count_tool on each of the 3 app_ids.
-3. show_product_cards with the 3 app_ids.
-Answer: "Here's the live data for those three:
+User asks a factual question about three specific games, so you answer about those three only:
+"Here's the live data for those three:
 
 - **ELDEN RING**: **85,000+ players** exploring the Lands Between.
 - **Baldur's Gate 3**: **120,000+ players** on their epic adventure.
@@ -154,7 +123,6 @@ Answer: "Here's the live data for those three:
 
 **Baldur's Gate 3** is the most active of the bunch right now."
 </example>
-
 </examples>
 
 <final_check>
@@ -191,7 +159,7 @@ _executor = AgentExecutor(
     agent=create_tool_calling_agent(llm, _tools, _prompt),
     tools=_tools,
     verbose=True,
-    max_iterations=5,
+    max_iterations=8,  # search + 3 detail lookups + cards is already 5; leave room to recover
     max_execution_time=60,
     handle_parsing_errors=True,
 )

@@ -8,6 +8,14 @@ const ease: [number, number, number, number] = [0.4, 0, 0.2, 1];
 
 const glass = "glass";
 
+/* Screenshot strip columns, keyed by how many shots survived parsing.
+   Static class strings so Tailwind's scanner keeps them. */
+const SHOT_GRID: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+};
+
 const SEARCH_CATEGORIES = [
   { icon: Swords, label: "Action" },
   { icon: Gamepad2, label: "RPG" },
@@ -593,8 +601,15 @@ function App() {
                                 className={`${glass} p-4 rounded-lg transition-colors duration-150 flex flex-col gap-3`}
                               >
                                 <div className="flex gap-4">
+                                  {/* Steam capsule art is 460x215 — match that ratio so nothing is cropped */}
                                   {product.image_url && (
-                                    <img src={product.image_url} alt={product.name} className="w-36 h-20 flex-shrink-0 object-cover rounded-md bg-surface" />
+                                    <img
+                                      src={product.image_url}
+                                      alt={product.name}
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="w-[148px] aspect-[460/215] flex-shrink-0 object-cover rounded-md bg-surface"
+                                    />
                                   )}
                                   <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                                     <div>
@@ -612,19 +627,22 @@ function App() {
                                   </div>
                                 </div>
                                 {(() => {
-                                  const shots = parseScreenshots(product.screenshots).slice(0, msg.results!.length);
-                                  return shots.length > 0 ? (
-                                    <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                                  const shots = parseScreenshots(product.screenshots).slice(0, 3);
+                                  if (shots.length === 0) return null;
+                                  return (
+                                    <div className={`grid gap-1.5 ${SHOT_GRID[shots.length]}`}>
                                       {shots.map((url, si) => (
                                         <img
                                           key={si}
                                           src={url}
                                           alt={`${product.name} screenshot ${si + 1}`}
-                                          className="h-28 w-auto flex-shrink-0 rounded-md object-cover bg-surface"
+                                          loading="lazy"
+                                          decoding="async"
+                                          className="w-full aspect-video rounded-md object-cover bg-surface"
                                         />
                                       ))}
                                     </div>
-                                  ) : null;
+                                  );
                                 })()}
                               </motion.div>
                             ))}
